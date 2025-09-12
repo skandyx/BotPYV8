@@ -20,17 +20,20 @@ Before you begin, you need:
 
 Connect to your VPS via SSH and perform the following steps.
 
-### 2.1. Install Node.js
+### 2.1. Install System Dependencies
+
+Some Node.js packages, like `sqlite3`, need to be compiled from source. Install the necessary build tools first.
+
+```bash
+sudo apt update
+sudo apt install -y curl build-essential python3
+```
+
+### 2.2. Install Node.js
 
 The bot's backend runs on Node.js. We'll use `nvm` (Node Version Manager) to install it, which is the recommended way.
 
 ```bash
-# Update package lists
-sudo apt update
-
-# Install curl to download nvm
-sudo apt install curl -y
-
 # Download and run the nvm installation script
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 
@@ -38,9 +41,6 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
-
-# Verify nvm is loaded (optional)
-command -v nvm
 
 # Install a recent LTS (Long Term Support) version of Node.js
 nvm install --lts
@@ -50,7 +50,7 @@ node -v
 npm -v
 ```
 
-### 2.2. Install PM2
+### 2.3. Install PM2
 
 PM2 is a process manager for Node.js applications. It will automatically restart the bot if it crashes and keep it running in the background.
 
@@ -58,17 +58,13 @@ PM2 is a process manager for Node.js applications. It will automatically restart
 npm install pm2 -g
 ```
 
-### 2.3. Install Nginx
+### 2.4. Install Nginx
 
 Nginx is a high-performance web server. We will use it to serve our React dashboard and to act as a reverse proxy for our backend API.
 
 ```bash
 sudo apt install nginx -y
-
-# Enable Nginx to start on server boot
 sudo systemctl enable nginx
-
-# Start Nginx
 sudo systemctl start nginx
 ```
 
@@ -94,7 +90,7 @@ Install the dependencies for both the frontend and the backend.
 # From the root directory of your project
 npm run install:all
 ```
-*(This command is configured in the new `package.json` to install for both `backend` and the root `frontend`)*.
+*(This command is configured in the `package.json` to install for both `backend` and the root `frontend`)*.
 
 ### 3.3. Configure the Backend
 
@@ -115,13 +111,12 @@ nano .env
 ```
 
 You **must** set the following variables:
-- `NODE_ENV`: Set to `production` for deployment. This enables secure cookies and other optimizations.
+- `NODE_ENV`: Set to `production` for deployment.
 - `PORT`: The port the backend will run on (e.g., `8080`).
 - `APP_PASSWORD`: A strong, secret password to access the dashboard.
-- `BINANCE_API_KEY`: Your Binance API key.
-- `BINANCE_SECRET_KEY`: Your Binance secret key.
+- `BINANCE_API_KEY` & `BINANCE_SECRET_KEY`.
 
-You can also adjust any of the default trading parameters here. Save the file and exit (`CTRL+X`, then `Y`, then `Enter`).
+Save the file and exit (`CTRL+X`, then `Y`, then `Enter`).
 
 ### 3.4. Build the Frontend
 
@@ -139,14 +134,13 @@ This will create an optimized version of your dashboard in a `dist/` directory.
 
 ## 4. Running the Bot with PM2
 
-Now we will start the backend server using PM2.
+Now we will start the backend server using PM2. The bot will automatically create a `data/` directory in the `backend/` folder, which will contain `klines.sqlite` and other state files.
 
 ```bash
 # Go to the backend directory
 cd backend
 
 # Start the server with PM2
-# It will automatically pick up the .env file from the current directory
 pm2 start server.js --name botpy-backend
 
 # To ensure the bot restarts automatically after a server reboot:
@@ -172,7 +166,7 @@ The final step is to tell Nginx how to serve your application.
 sudo nano /etc/nginx/sites-available/botpy
 ```
 
-Paste the following configuration into the file. **Remember to replace `botpy.alex-com.tn` with your actual domain name and `8080` with the `PORT` you set in your `.env` file.**
+Paste the following configuration into the file. **Remember to replace `botpy.alex-com.tn` with your domain and `8080` with your backend `PORT`.**
 
 ```nginx
 server {
@@ -192,21 +186,16 @@ server {
         proxy_pass http://localhost:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     # Reverse proxy for WebSocket connections
-    # This block is crucial for real-time communication
     location /ws {
         proxy_pass http://localhost:8080;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "Upgrade";
         proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 86400; # Keep connection open
+        proxy_read_timeout 86400;
     }
 }
 ```
@@ -234,7 +223,7 @@ sudo systemctl restart nginx
 
 Your bot is now running 24/7. You can access your dashboard by visiting `http://botpy.alex-com.tn` in your web browser.
 
-**Recommendation:** For a production deployment, it is highly recommended to secure your site with an SSL certificate (HTTPS). You can get a free certificate from Let's Encrypt using the `certbot` tool.
+**Recommendation:** Secure your site with a free SSL certificate from Let's Encrypt.
 ```bash
 sudo apt install certbot python3-certbot-nginx -y
 sudo certbot --nginx -d botpy.alex-com.tn

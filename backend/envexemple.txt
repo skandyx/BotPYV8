@@ -76,6 +76,17 @@ PARABOLIC_FILTER_PERIOD_MINUTES=5
 # Le pourcentage de hausse maximum autorisé sur la période de vérification.
 PARABOLIC_FILTER_THRESHOLD_PCT=3.0
 
+# --- STRATEGIE IGNITION (PUMP HUNTER) ---
+# Active la stratégie alternative pour trader les pumps. (true/false)
+# Désactive la stratégie "Macro-Micro" si activée. À utiliser avec une extrême prudence.
+USE_IGNITION_STRATEGY=false
+# Le multiplicateur de volume pour un signal. Ex: 5 signifie que le volume 1m doit être 5x > moyenne 20m.
+IGNITION_VOLUME_SPIKE_FACTOR=5
+# La période (minutes) pour mesurer l'accélération du prix.
+IGNITION_PRICE_ACCEL_PERIOD_MINUTES=5
+# L'augmentation de prix (%) minimale requise sur la période pour un signal.
+IGNITION_PRICE_ACCEL_THRESHOLD_PCT=2.0
+
 # --- API CREDENTIALS ---
 BINANCE_API_KEY=votre_cle_api_binance
 BINANCE_SECRET_KEY=votre_cle_secrete_binance

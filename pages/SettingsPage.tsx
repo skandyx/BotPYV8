@@ -41,7 +41,11 @@ const tooltips: Record<string, string> = {
     STRONG_BUY_POSITION_SIZE_PCT: "Le pourcentage de votre solde à utiliser pour un signal 'STRONG BUY' si le dimensionnement dynamique est activé.",
     USE_PARABOLIC_FILTER: "Active un filtre de sécurité pour éviter d'ouvrir des trades sur des mouvements de prix soudains et verticaux (paraboliques), qui sont souvent des pièges de liquidité.",
     PARABOLIC_FILTER_PERIOD_MINUTES: "La période (en minutes) sur laquelle vérifier une hausse de prix parabolique avant d'entrer dans un trade.",
-    PARABOLIC_FILTER_THRESHOLD_PCT: "Le pourcentage maximum d'augmentation de prix autorisé sur la période de vérification. Si le prix a augmenté plus que ce seuil, le trade est ignoré pour éviter d'entrer sur un pic insoutenable."
+    PARABOLIC_FILTER_THRESHOLD_PCT: "Le pourcentage maximum d'augmentation de prix autorisé sur la période de vérification. Si le prix a augmenté plus que ce seuil, le trade est ignoré pour éviter d'entrer sur un pic insoutenable.",
+    USE_IGNITION_STRATEGY: "Active une stratégie alternative à haute fréquence conçue pour détecter et trader les départs de 'pumps' violents. Désactive la stratégie 'Chasseur de Précision'. Utiliser avec prudence.",
+    IGNITION_VOLUME_SPIKE_FACTOR: "Le multiplicateur de volume requis pour déclencher un signal. Ex: '5' signifie que le volume de la bougie 1m doit être 5 fois supérieur à la moyenne des 20 dernières.",
+    IGNITION_PRICE_ACCEL_PERIOD_MINUTES: "La période en minutes sur laquelle mesurer l'accélération du prix.",
+    IGNITION_PRICE_ACCEL_THRESHOLD_PCT: "L'augmentation de prix minimale (%) requise sur la période d'accélération pour déclencher un signal."
 };
 
 const inputClass = "mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white";
@@ -239,7 +243,7 @@ const SettingsPage: React.FC = () => {
                     </div>
                     {/* Advanced Strategy */}
                     <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
-                        <h3 className="text-lg font-semibold text-white mb-4">Stratégie Avancée</h3>
+                        <h3 className="text-lg font-semibold text-white mb-4">Stratégie Chasseur de Précision</h3>
                         <div className="space-y-4">
                             <ToggleField id="USE_MARKET_REGIME_FILTER" label="Filtre de Tendance Maître (4h)" />
                             <ToggleField id="USE_VOLUME_CONFIRMATION" label="Confirmation par Volume (1m)" />
@@ -251,7 +255,6 @@ const SettingsPage: React.FC = () => {
                             <InputField id="LOSS_COOLDOWN_HOURS" label="Cooldown après Perte (Heures)" children={<span className="text-gray-400 text-sm">h</span>}/>
                         </div>
                     </div>
-                    
                      {/* Parabolic Filter */}
                     <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
                         <h3 className="text-lg font-semibold text-white mb-4">Filtre Anti-Parabolique</h3>
@@ -260,6 +263,19 @@ const SettingsPage: React.FC = () => {
                             <div className={`grid grid-cols-2 gap-4 transition-opacity ${settings.USE_PARABOLIC_FILTER ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                                  <InputField id="PARABOLIC_FILTER_PERIOD_MINUTES" label="Période de Vérif. (min)" />
                                  <InputField id="PARABOLIC_FILTER_THRESHOLD_PCT" label="Seuil de Hausse (%)" step="0.1" />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Ignition Strategy */}
+                    <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
+                        <h3 className="text-lg font-semibold text-white mb-4">Stratégie d'Ignition 🚀</h3>
+                        <div className="space-y-4">
+                            <ToggleField id="USE_IGNITION_STRATEGY" label="Activer la Stratégie d'Ignition" />
+                            <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 transition-opacity ${settings.USE_IGNITION_STRATEGY ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                <InputField id="IGNITION_VOLUME_SPIKE_FACTOR" label="Facteur Pic Vol (x)" />
+                                <InputField id="IGNITION_PRICE_ACCEL_PERIOD_MINUTES" label="Période Accél. (min)" />
+                                <InputField id="IGNITION_PRICE_ACCEL_THRESHOLD_PCT" label="Seuil Accél. (%)" step="0.1" />
                             </div>
                         </div>
                     </div>

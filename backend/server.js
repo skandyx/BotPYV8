@@ -1,5 +1,4 @@
-
-
+// backend/server.js
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
@@ -14,6 +13,7 @@ import http from 'http';
 import fetch from 'node-fetch';
 import { ScannerService } from './ScannerService.js';
 import { createTradingStrategy } from './TradingStrategy.js';
+import { DatabaseService } from './DatabaseService.js';
 
 
 // --- Basic Setup ---
@@ -24,8 +24,6 @@ const server = http.createServer(app);
 
 app.use(cors({
     origin: (origin, callback) => {
-        // For development (e.g., Postman) or same-origin, origin is undefined.
-        // In production, you might want to restrict this to your frontend's domain.
         callback(null, true);
     },
     credentials: true,
@@ -122,12 +120,10 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 const SETTINGS_FILE_PATH = path.join(DATA_DIR, 'settings.json');
 const STATE_FILE_PATH = path.join(DATA_DIR, 'state.json');
 const AUTH_FILE_PATH = path.join(DATA_DIR, 'auth.json');
-const KLINE_DATA_DIR = path.join(DATA_DIR, 'klines');
 let isSavingState = false; // CRITICAL FIX: Lock for state saving
 
 const ensureDataDirs = async () => {
     try { await fs.access(DATA_DIR); } catch { await fs.mkdir(DATA_DIR); }
-    try { await fs.access(KLINE_DATA_DIR); } catch { await fs.mkdir(KLINE_DATA_DIR); }
 };
 
 // --- Auth Helpers ---
@@ -154,16 +150,15 @@ const verifyPassword = (password, hash) => {
                 const match = crypto.timingSafeEqual(keyBuffer, derivedKey);
                 resolve(match);
             } catch (e) {
-                // Handle cases where the key is not valid hex, preventing crashes
                 resolve(false);
             }
         });
     });
 };
 
+const dbService = new DatabaseService(log);
 
 const loadData = async () => {
-    await ensureDataDirs();
     try {
         const settingsContent = await fs.readFile(SETTINGS_FILE_PATH, 'utf-8');
         botState.settings = JSON.parse(settingsContent);
@@ -187,7 +182,6 @@ const loadData = async () => {
             LOSS_COOLDOWN_HOURS: parseInt(process.env.LOSS_COOLDOWN_HOURS, 10) || 4,
             BINANCE_API_KEY: process.env.BINANCE_API_KEY || '',
             BINANCE_SECRET_KEY: process.env.BINANCE_SECRET_KEY || '',
-            // Advanced Defaults
             USE_ATR_STOP_LOSS: false,
             ATR_MULTIPLIER: 1.5,
             USE_AUTO_BREAKEVEN: true,
@@ -204,6 +198,10 @@ const loadData = async () => {
             USE_PARABOLIC_FILTER: true,
             PARABOLIC_FILTER_PERIOD_MINUTES: 5,
             PARABOLIC_FILTER_THRESHOLD_PCT: 3.0,
+            USE_IGNITION_STRATEGY: process.env.USE_IGNITION_STRATEGY === 'true',
+            IGNITION_VOLUME_SPIKE_FACTOR: parseFloat(process.env.IGNITION_VOLUME_SPIKE_FACTOR) || 5,
+            IGNITION_PRICE_ACCEL_PERIOD_MINUTES: parseInt(process.env.IGNITION_PRICE_ACCEL_PERIOD_MINUTES, 10) || 5,
+            IGNITION_PRICE_ACCEL_THRESHOLD_PCT: parseFloat(process.env.IGNITION_PRICE_ACCEL_THRESHOLD_PCT) || 2.0,
         };
         await saveData('settings');
     }
@@ -212,7 +210,6 @@ const loadData = async () => {
         const persistedState = JSON.parse(stateContent);
         botState.balance = persistedState.balance || botState.settings.INITIAL_VIRTUAL_BALANCE;
         botState.activePositions = persistedState.activePositions || [];
-        botState.tradeHistory = persistedState.tradeHistory || [];
         botState.tradeIdCounter = persistedState.tradeIdCounter || 1;
         botState.isRunning = persistedState.isRunning !== undefined ? persistedState.isRunning : true;
         botState.tradingMode = persistedState.tradingMode || 'VIRTUAL';
@@ -221,6 +218,11 @@ const loadData = async () => {
         botState.balance = botState.settings.INITIAL_VIRTUAL_BALANCE;
         await saveData('state');
     }
+
+    // Load trade history from DB
+    botState.tradeHistory = await dbService.getTradeHistory();
+    log('INFO', `[DB] Loaded ${botState.tradeHistory.length} trades from history.`);
+
 
     try {
         const authContent = await fs.readFile(AUTH_FILE_PATH, 'utf-8');
@@ -246,7 +248,6 @@ const loadData = async () => {
 };
 
 const saveData = async (type) => {
-    await ensureDataDirs();
     if (type === 'settings') {
         await fs.writeFile(SETTINGS_FILE_PATH, JSON.stringify(botState.settings, null, 2));
     } else if (type === 'state') {
@@ -259,7 +260,7 @@ const saveData = async (type) => {
             const stateToPersist = {
                 balance: botState.balance,
                 activePositions: botState.activePositions,
-                tradeHistory: botState.tradeHistory,
+                // tradeHistory is no longer saved in state.json
                 tradeIdCounter: botState.tradeIdCounter,
                 isRunning: botState.isRunning,
                 tradingMode: botState.tradingMode,
@@ -352,24 +353,17 @@ function connectToBinanceStreams() {
             } else if (msg.e === '24hrTicker') {
                 const symbol = msg.s;
                 const newPrice = parseFloat(msg.c);
-                const newVolume = parseFloat(msg.q); // Total traded quote asset volume for last 24h
+                const newVolume = parseFloat(msg.q); 
 
-                // 1. Update the central price cache for PnL calculations etc.
                 botState.priceCache.set(symbol, { price: newPrice });
-
-                // 2. Update the scanner cache if the pair exists there
                 const updatedPair = botState.scannerCache.find(p => p.symbol === symbol);
                 if (updatedPair) {
                     const oldPrice = updatedPair.price;
                     updatedPair.price = newPrice;
-                    updatedPair.volume = newVolume; // Update the volume in real-time
+                    updatedPair.volume = newVolume; 
                     updatedPair.priceDirection = newPrice > oldPrice ? 'up' : newPrice < oldPrice ? 'down' : (updatedPair.priceDirection || 'neutral');
-                    
-                    // Broadcast a full update for this pair to update the entire row in the scanner UI.
                     broadcast({ type: 'SCANNER_UPDATE', payload: updatedPair });
                 }
-
-                // 3. Also broadcast the simple PRICE_UPDATE for other parts of the app that only care about price (like PnL calculation).
                 broadcast({ type: 'PRICE_UPDATE', payload: {symbol: symbol, price: newPrice } });
             }
         } catch (e) {
@@ -388,24 +382,21 @@ function connectToBinanceStreams() {
 function updateBinanceSubscriptions(baseSymbols) {
     const symbolsFromScanner = new Set(baseSymbols);
     const symbolsFromPositions = new Set(botState.activePositions.map(p => p.symbol));
-
-    // Union of both sets to ensure we get price updates for all relevant pairs
     const allSymbolsForTickers = new Set([...symbolsFromScanner, ...symbolsFromPositions]);
-
     const newStreams = new Set();
     
-    // Ticker stream for ALL monitored symbols (scanner + positions)
     allSymbolsForTickers.forEach(s => {
         newStreams.add(`${s.toLowerCase()}@ticker`);
     });
 
-    // 15m kline stream ONLY for pairs in the active scanner
-    symbolsFromScanner.forEach(s => {
-        newStreams.add(`${s.toLowerCase()}@kline_15m`);
-    });
+    if (!botState.settings.USE_IGNITION_STRATEGY) {
+        symbolsFromScanner.forEach(s => {
+            newStreams.add(`${s.toLowerCase()}@kline_15m`);
+        });
+    }
     
-    // 1m kline stream ONLY for pairs on the hotlist
-    botState.hotlist.forEach(s => {
+    const symbolsFor1m = botState.settings.USE_IGNITION_STRATEGY ? symbolsFromScanner : botState.hotlist;
+    symbolsFor1m.forEach(s => {
         newStreams.add(`${s.toLowerCase()}@kline_1m`);
     });
 
@@ -452,7 +443,6 @@ function removeSymbolFrom1mStream(symbol) {
     }
 }
 
-
 // --- Bot State & Core Logic ---
 let botState = {
     settings: {},
@@ -460,16 +450,16 @@ let botState = {
     activePositions: [],
     tradeHistory: [],
     tradeIdCounter: 1,
-    scannerCache: [], // Holds the latest state of all scanned pairs
+    scannerCache: [],
     isRunning: true,
-    tradingMode: 'VIRTUAL', // VIRTUAL, REAL_PAPER, REAL_LIVE
+    tradingMode: 'VIRTUAL',
     passwordHash: '',
-    recentlyLostSymbols: new Map(), // symbol -> { until: timestamp }
-    hotlist: new Set(), // Symbols ready for 1m precision entry
-    priceCache: new Map(), // symbol -> { price: number }
+    recentlyLostSymbols: new Map(),
+    hotlist: new Set(),
+    priceCache: new Map(),
 };
 
-const scanner = new ScannerService(log, KLINE_DATA_DIR);
+const scanner = new ScannerService(log);
 let scannerInterval = null;
 
 // --- Latency Checker ---
@@ -498,53 +488,48 @@ const { realtimeAnalyzer, tradingEngine } = createTradingStrategy({
     broadcast,
     saveData,
     getState: () => botState,
-    scanner,
+    dbService,
     addSymbolTo1mStream,
     removeSymbolFrom1mStream,
 });
 
-
 async function runScannerCycle() {
     if (!botState.isRunning) return;
     try {
-        const discoveredPairs = await scanner.runScan(botState.settings);
-        if (discoveredPairs.length === 0) {
-            this.log('WARN', 'No pairs found meeting volume/exclusion criteria.');
-            return [];
-        }
-        const newPairsToHydrate = [];
+        const discoveredPairs = await scanner.discoverAndFilterPairsFromBinance(botState.settings);
         const discoveredSymbols = new Set(discoveredPairs.map(p => p.symbol));
+        const existingSymbols = new Set(botState.scannerCache.map(p => p.symbol));
+
+        const newSymbols = [...discoveredSymbols].filter(s => !existingSymbols.has(s));
+        
+        if (newSymbols.length > 0) {
+            log('SCANNER', `Discovered ${newSymbols.length} new pairs. Hydrating data...`);
+            const hydrationPromises = newSymbols.flatMap(symbol => [
+                realtimeAnalyzer.hydrateSymbol(symbol, '4h'),
+                realtimeAnalyzer.hydrateSymbol(symbol, '1h'),
+                realtimeAnalyzer.hydrateSymbol(symbol, '15m'),
+                realtimeAnalyzer.hydrateSymbol(symbol, '1m')
+            ]);
+            await Promise.all(hydrationPromises);
+        }
+
+        botState.scannerCache = botState.scannerCache.filter(p => discoveredSymbols.has(p.symbol));
+        
         const existingPairsMap = new Map(botState.scannerCache.map(p => [p.symbol, p]));
 
-        // 1. Update existing pairs from the new scan data, and identify brand new pairs.
         for (const discoveredPair of discoveredPairs) {
             const existingPair = existingPairsMap.get(discoveredPair.symbol);
             if (existingPair) {
-                // The pair already exists in our cache. We update ONLY the background
-                // indicators from the fresh scan, preserving all real-time data
-                // (like score, BB width, etc.) that the RealtimeAnalyzer has calculated.
                 existingPair.volume = discoveredPair.volume;
                 existingPair.price = discoveredPair.price;
-                existingPair.price_above_ema50_4h = discoveredPair.price_above_ema50_4h;
-                existingPair.rsi_1h = discoveredPair.rsi_1h;
             } else {
-                // This is a new pair not seen before. Add it to the main cache
-                // and mark it for historical data hydration.
-                botState.scannerCache.push(discoveredPair);
-                newPairsToHydrate.push(discoveredPair.symbol);
+                const analysisData = await realtimeAnalyzer.performInitialAnalysis(discoveredPair.symbol);
+                if(analysisData) {
+                    botState.scannerCache.push({ ...discoveredPair, ...analysisData });
+                }
             }
         }
-
-        // 2. Remove pairs that are no longer valid (i.e., they were not in the latest scan results)
-        botState.scannerCache = botState.scannerCache.filter(p => discoveredSymbols.has(p.symbol));
-
-        // 3. Asynchronously hydrate the new pairs to get their 15m kline data
-        if (newPairsToHydrate.length > 0) {
-            log('INFO', `New symbols detected by scanner: [${newPairsToHydrate.join(', ')}]. Hydrating...`);
-            await Promise.all(newPairsToHydrate.map(symbol => realtimeAnalyzer.hydrateSymbol(symbol, '15m')));
-        }
-
-        // 4. Update WebSocket subscriptions to match the new final list of monitored pairs
+        
         updateBinanceSubscriptions(botState.scannerCache.map(p => p.symbol));
         
     } catch (error) {
@@ -552,12 +537,10 @@ async function runScannerCycle() {
     }
 }
 
-
 // --- Main Application Loop ---
 const startBot = () => {
     if (scannerInterval) clearInterval(scannerInterval);
     
-    // Initial scan, then set interval
     runScannerCycle(); 
     scannerInterval = setInterval(runScannerCycle, botState.settings.SCANNER_DISCOVERY_INTERVAL_SECONDS * 1000);
     
@@ -565,9 +548,8 @@ const startBot = () => {
         if (botState.isRunning) {
             tradingEngine.monitorAndManagePositions();
         }
-    }, 1000); // Manage positions every second for high-frequency checks
+    }, 1000);
     
-    // Periodically sync real balance if not in VIRTUAL mode
     setInterval(async () => {
         if (botState.tradingMode !== 'VIRTUAL' && botState.isRunning) {
             try {
@@ -578,18 +560,16 @@ const startBot = () => {
                     if (botState.balance !== realBalance) {
                         log('INFO', `Syncing real Binance balance. Old: ${botState.balance.toFixed(2)}, New: ${realBalance.toFixed(2)}`);
                         botState.balance = realBalance;
-                        // This balance is now available to the trading engine for its next check.
                     }
                 }
             } catch (error) {
                 log('ERROR', `Failed to sync real Binance balance: ${error.message}`);
             }
         }
-    }, 30000); // Sync balance every 30 seconds
+    }, 30000);
 
     connectToBinanceStreams();
     
-    // Start latency checker
     checkBinanceLatency();
     setInterval(checkBinanceLatency, 10000);
     
@@ -605,7 +585,6 @@ const requireAuth = (req, res, next) => {
     }
 };
 
-// --- AUTH ---
 app.post('/api/login', async (req, res) => {
     const { password } = req.body;
     try {
@@ -657,7 +636,6 @@ app.post('/api/change-password', requireAuth, async (req, res) => {
 });
 
 
-// --- SETTINGS ---
 app.get('/api/settings', requireAuth, (req, res) => {
     res.json(botState.settings);
 });
@@ -665,22 +643,18 @@ app.get('/api/settings', requireAuth, (req, res) => {
 app.post('/api/settings', requireAuth, async (req, res) => {
     const oldSettings = { ...botState.settings };
     
-    // Update settings in memory
     botState.settings = { ...botState.settings, ...req.body };
     
-    // If virtual balance setting is changed while in VIRTUAL mode, update the current balance.
     if (botState.tradingMode === 'VIRTUAL' && botState.settings.INITIAL_VIRTUAL_BALANCE !== oldSettings.INITIAL_VIRTUAL_BALANCE) {
         botState.balance = botState.settings.INITIAL_VIRTUAL_BALANCE;
         log('INFO', `Virtual balance was adjusted to match new setting: $${botState.balance}`);
-        await saveData('state'); // Persist the new balance
-        // Trigger a refresh on the frontend to show the new balance.
+        await saveData('state');
         broadcast({ type: 'POSITIONS_UPDATED' });
     }
 
     await saveData('settings');
     realtimeAnalyzer.updateSettings(botState.settings);
     
-    // Restart scanner interval only if the timing changed
     if (botState.settings.SCANNER_DISCOVERY_INTERVAL_SECONDS !== oldSettings.SCANNER_DISCOVERY_INTERVAL_SECONDS) {
         log('INFO', `Scanner interval updated to ${botState.settings.SCANNER_DISCOVERY_INTERVAL_SECONDS} seconds.`);
         if (scannerInterval) clearInterval(scannerInterval);
@@ -690,7 +664,6 @@ app.post('/api/settings', requireAuth, async (req, res) => {
     res.json({ success: true });
 });
 
-// --- DATA & STATUS ---
 app.get('/api/status', requireAuth, async (req, res) => {
     let currentBalance = botState.balance;
 
@@ -722,7 +695,6 @@ app.get('/api/status', requireAuth, async (req, res) => {
 });
 
 app.get('/api/positions', requireAuth, (req, res) => {
-    // Augment positions with current price from scanner cache for frontend display
     const augmentedPositions = botState.activePositions.map(pos => {
         const priceData = botState.priceCache.get(pos.symbol);
         const currentPrice = priceData ? priceData.price : pos.entry_price;
@@ -762,9 +734,7 @@ app.get('/api/scanner', requireAuth, (req, res) => {
 });
 
 
-// --- ACTIONS ---
 app.post('/api/open-trade', requireAuth, (req, res) => {
-    // Manual trade opening logic can be added here if needed
     res.status(501).json({ message: 'Manual trade opening not implemented.' });
 });
 
@@ -792,12 +762,12 @@ app.post('/api/clear-data', requireAuth, async (req, res) => {
     botState.activePositions = [];
     botState.tradeHistory = [];
     botState.tradeIdCounter = 1;
+    await dbService.clearTradeHistory();
     await saveData('state');
     broadcast({ type: 'POSITIONS_UPDATED' });
     res.json({ success: true });
 });
 
-// --- CONNECTION TESTS ---
 app.post('/api/test-connection', requireAuth, async (req, res) => {
     const { apiKey, secretKey } = req.body;
     if (!apiKey || !secretKey) {
@@ -828,7 +798,6 @@ app.post('/api/test-connection', requireAuth, async (req, res) => {
 });
 
 
-// --- BOT CONTROL ---
 app.get('/api/bot/status', requireAuth, (req, res) => {
     res.json({ isRunning: botState.isRunning });
 });
@@ -869,6 +838,8 @@ app.get('*', (req, res) => {
 // --- Initialize and Start Server ---
 (async () => {
     try {
+        await ensureDataDirs();
+        await dbService.init();
         await loadData();
         startBot();
         server.listen(port, () => {

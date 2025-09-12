@@ -5,17 +5,13 @@ BOTPY is a comprehensive web-based dashboard designed to monitor, control, and a
 ## ✨ Key Features
 
 -   **Multiple Trading Modes**: A safe, phased approach to live trading.
-    -   `Virtual`: 100% simulation. Safe for testing and strategy optimization.
-    -   `Real (Paper)`: Uses real Binance API keys for a live data feed but **simulates** trades without risking capital. The perfect final test.
-    -   `Real (Live)`: Executes trades with real funds on your Binance account.
--   **Real-time Market Scanner**: Automatically identifies high-potential trading pairs based on user-defined criteria like volume.
--   **Advanced & Configurable Strategy**: Implements a powerful "Explosive Wave Hunter" strategy that combines a master trend filter with a volatility breakout trigger.
-    -   **Core Indicators**: EMA, Bollinger Bands, RSI, Volume.
-    -   **Intelligent Entry**: A multi-stage validation process ensures entries are only taken in high-probability scenarios (correct trend, volatility compression, volume-confirmed breakout).
-    -   **Dynamic Risk Management**: Stop Loss is placed logically below the breakout structure, and Take Profit is calculated based on a Risk/Reward ratio for disciplined profit-taking.
--   **Live Dashboard**: Offers an at-a-glance overview of key performance indicators (KPIs) such as balance, open positions, total Profit & Loss (P&L), and win rate.
+-   **Dual-Strategy Engine**: Choose between two distinct, powerful trading strategies:
+    1.  **"Macro-Micro" Precision Hunter (Default)**: A robust strategy for stable market conditions, combining long-term trend analysis with precision breakout entries.
+    2.  **"Ignition" 🚀 (New!)**: An aggressive, high-frequency strategy designed to detect and trade explosive market "pumps" with a unique, ultra-responsive trailing stop loss.
+-   **Real-time Market Scanner**: Automatically identifies high-potential trading pairs based on the active strategy's criteria.
+-   **Live Dashboard**: Offers an at-a-glance overview of key performance indicators (KPIs).
 -   **Detailed Trade History**: Provides a complete log of all past trades with powerful sorting, filtering, and data export (CSV) capabilities.
--   **Fully Configurable**: Every parameter of the strategy is easily adjustable through a dedicated settings page with helpful tooltips.
+-   **Fully Configurable**: Every parameter of both strategies is easily adjustable through a dedicated settings page.
 
 ---
 
@@ -28,134 +24,84 @@ The application is designed with a dark, modern aesthetic (`bg-[#0c0e12]`), usin
 
 ### 📊 Dashboard
 -   **Purpose**: The main control center, providing a high-level summary of the bot's status and performance.
--   **Key Components**: Stat Cards (Balance, Open Positions, P&L), Performance Chart, and an Active Positions Table.
 
 ### 📡 Scanner
--   **Purpose**: To display the real-time results of the market analysis, showing which pairs are potential trade candidates based on the new strategy.
--   **Layout**: A data-dense table with sortable columns reflecting the new "Explosive Wave Hunter" strategy.
--   **Key Columns**:
-    -   `Symbol`, `Price` (with live green/red flashes).
-    -   `Score`: The final strategic score, displayed as a colored badge (`STRONG BUY` is green, `COMPRESSION` is blue).
-    -   `Tendance 4h (EMA50)`: Shows if the master trend filter (Price > EMA50) is met.
-    -   `RSI 1h`: Displays the 1-hour RSI to check the safety filter condition (< 75).
-    -   `Largeur BB 15m`: Shows the current width of the 15-minute Bollinger Bands, highlighting pairs in a "squeeze".
+-   **Purpose**: To display the real-time results of the market analysis, showing which pairs are potential trade candidates based on the active strategy.
 
 ### 📜 History
 -   **Purpose**: A dedicated page for reviewing and analyzing the performance of all completed trades.
 
 ### ⚙️ Settings
--   **Purpose**: Allows for complete configuration of the bot's strategy and operational parameters. Every setting has a tooltip for explanation.
+-   **Purpose**: Allows for complete configuration of the bot's operational parameters and the selection and tuning of the active trading strategy.
 
 ### 🖥️ Console
 -   **Purpose**: Provides a transparent, real-time view into the bot's internal operations with color-coded log levels.
 
 ---
 
-## 🧠 Trading Strategy Explained: The "Macro-Micro" Precision Hunter
+## 🧠 Trading Strategies Explained
 
-The bot's core philosophy is to combine a high-level **"Macro"** analysis to find high-probability environments with a low-level **"Micro"** analysis to pinpoint the perfect entry moment. This avoids the "noise" of low timeframes while capturing the explosive start of a move with surgical precision.
+The bot now features two selectable, mutually exclusive trading strategies.
 
-The process is a multi-stage funnel:
+### 1. "Macro-Micro" Precision Hunter (Default Strategy)
 
-### **Phase 1: Macro Scan & Hotlist Qualification (4h / 15m)**
+This strategy combines high-level **"Macro"** analysis (4h/15m charts) to find high-probability environments with a low-level **"Micro"** analysis (1m chart) to pinpoint the perfect entry moment.
 
-The bot continuously scans all USDT pairs, looking for those that are "primed" for a potential explosive move. Instead of trading immediately, it adds qualified pairs to a **"Hotlist"** (marked with a 🎯 in the scanner). A pair must pass three strict macro filters to be considered:
+**Funnel Process:**
+1.  **Macro Scan (4h/15m)**: Identifies pairs in a strong uptrend (`Price > EMA50 4h`) that are simultaneously consolidating (`Bollinger Band Squeeze 15m`). Qualified pairs are added to a **"Hotlist"**.
+2.  **Micro Trigger (1m)**: For "Hotlist" pairs, it waits for a 1-minute breakout confirmed by momentum (`Close > EMA9`) and volume. Strict safety filters (RSI, Parabolic Move) are applied to prevent bad entries.
+3.  **Dynamic Trade Management**: Uses a sophisticated "Profit Runner" sequence involving partial take-profits, moving the stop to break-even, and a percentage-based trailing stop loss to maximize gains.
 
-1.  **✅ MASTER TREND FILTER (The Context - 4h Chart):** The pair must be in a confirmed, powerful long-term uptrend.
-    *   **Condition:** The current price is **above its 50-period Exponential Moving Average (EMA50)**. This ensures we are only trading with the dominant market momentum.
+---
 
-2.  **✅ VOLUME SPIKE FILTER (The Fuel Check - 4h Chart):** The pair must show a significant increase in recent trading activity, signaling institutional interest.
-    *   **Condition:** The volume of the most recent 4-hour candle is **greater than 2 times the average volume of the previous 20 candles**. This filters out low-conviction moves and focuses on assets "waking up".
+### 2. "Ignition" Strategy 🚀 (New High-Frequency Strategy)
 
-3.  **✅ VOLATILITY COMPRESSION (The Preparation - 15m Chart):** The market must be consolidating and building up energy, like a coiled spring.
-    *   **Condition:** The pair is in a **Bollinger Band Squeeze**. This is detected when the width of the bands on the *previous* 15m candle was in the lowest 25% of its values over the last 50 periods. It signals quiet accumulation before a likely expansion in volatility.
+This is an aggressive strategy designed to detect the very beginning of explosive, high-volume price "pumps". It operates entirely on the 1-minute timeframe and bypasses many of the safety checks of the default strategy. **Use with extreme caution.**
 
-If all three conditions are met, the pair is placed on the **Hotlist**. The bot now "zooms in" and proceeds to Phase 2, analyzing every 1-minute candle for this specific pair.
+**Signal Detection (1m Chart):**
+The strategy looks for the simultaneous occurrence of two critical events on a single 1-minute candle:
 
-### **Phase 2: Micro Trigger & Safety Checks (1m)**
+1.  **🔥 Massive Volume Spike**: The candle's volume must be **X times greater** than the recent average volume (e.g., 5x). This indicates a massive influx of interest.
+2.  **🔥 Rapid Price Acceleration**: The price must have increased by **Y percent** over the last **Z minutes** (e.g., +2% in 5 mins). This confirms the volume is translating into a powerful upward move.
 
-For pairs on the Hotlist, and *only* for these pairs, the bot waits for the exact moment the breakout begins. The trade is triggered instantly only if all the following micro-conditions and safety checks are met:
+If both conditions are met, a `BUY` order is executed instantly.
 
-1.  **✅ MOMENTUM SHIFT (The Spark - 1m Chart):** The immediate, short-term momentum must flip bullish.
-    *   **Condition:** A 1-minute candle **closes above the 9-period Exponential Moving Average (EMA9)**.
-
-2.  **✅ VOLUME CONFIRMATION (The Fuel - 1m Chart):** The breakout must be backed by a surge in buying interest.
-    *   **Condition:** The volume of the trigger candle is significantly higher than average (e.g., **> 1.5 times the average of the last 20 minutes**).
-
-3.  **⚠️ SAFETY FILTER 1: RSI CHECK (The Overheating Guard - 1h Chart):** The bot avoids buying into an already over-extended market.
-    *   **Condition:** The 1-hour RSI must be **below the configured overbought threshold** (e.g., < 70).
-
-4.  **⚠️ SAFETY FILTER 2: PARABOLIC CHECK (The Fakeout Guard - 1m Chart):** The bot avoids buying into a sudden, vertical price spike which is often a trap.
-    *   **Condition:** The price has **not increased by more than a configured percentage** (e.g., 3%) over a short lookback period (e.g., 5 minutes).
-
-If all four conditions are met, the bot enters a `BUY` order immediately and removes the pair from the Hotlist to prevent re-entry.
-
-### **Phase 3: Dynamic Trade Management (Protecting & Maximizing Profits)**
-
-Once a trade is open, the exit management is just as critical and is fully automated.
-
-1.  **STOP LOSS (Initial Protection):**
-    *   **Placement:** The initial Stop Loss is placed logically just **below the low of the 1-minute trigger candle**. This provides a tight, structurally sound invalidation point.
-    *   **Dynamic Adaptation (ATR):** If enabled in the settings, the Stop Loss distance can be calculated using the Average True Range (ATR), which automatically adapts to the pair's current volatility.
-
-2.  **ADVANCED RISK MANAGEMENT (The "Profit Runner" Strategy):**
-    As a trade becomes profitable, a sequence of automated actions is triggered to secure gains and let winners run:
-    *   **Step 1: Partial Take Profit:** As the trade hits a configured profit target, the bot sells a portion of the position (e.g., 50%). This secures initial profit and significantly reduces the capital at risk.
-    *   **Step 2: Move to Break-even:** Immediately after the partial sale, the Stop Loss is moved to the entry price. At this point, **the trade can no longer become a loss**.
-    *   **Step 3: Trailing Stop Loss:** For the remainder of the position, a Trailing Stop Loss is activated. It follows the price as it moves up, locking in more and more profit, but it never moves down. This allows the bot to "ride the wave" and capture the entirety of a strong upward move until the trend shows signs of reversing.
+**Exit Management: "Lightning Trailing Stop Loss" ⚡**
+To manage the extreme volatility of pumps, this strategy uses a unique and highly responsive trailing stop loss:
+-   The Stop Loss is continuously updated to be placed **just below the low of the *previous* 1-minute candle**.
+-   This method is incredibly effective at locking in profits during a vertical price ascent. If the pump stalls or retraces even for a minute, the position is automatically closed, securing the gains. It is designed for rapid entry and rapid exit.
 
 ---
 # Version Française
 
-## 🧠 Stratégie de Trading : “Le Chasseur de Précision Macro-Micro”
+## 🧠 Stratégies de Trading Expliquées
 
-La philosophie du bot est de combiner une analyse **"Macro"** à haute échelle de temps pour trouver des environnements à forte probabilité, avec une analyse **"Micro"** à basse échelle de temps pour identifier le point d'entrée parfait. Cela permet d'éviter le "bruit" des petites unités de temps tout en capturant le début explosif d'un mouvement avec une précision chirurgicale.
+Le bot propose désormais deux stratégies de trading sélectionnables et mutuellement exclusives.
 
-Le processus est un entonnoir en plusieurs étapes :
+### 1. "Le Chasseur de Précision Macro-Micro" (Stratégie par défaut)
 
-### **Phase 1 : Scan Macro & Qualification sur la Hotlist (4h / 15m)**
+Cette stratégie combine une analyse **"Macro"** (graphiques 4h/15m) pour trouver des environnements à forte probabilité avec une analyse **"Micro"** (graphique 1m) pour identifier le point d'entrée parfait.
 
-Le bot scanne en permanence toutes les paires USDT, à la recherche de celles qui sont "prêtes" pour un potentiel mouvement explosif. Au lieu de trader immédiatement, il ajoute les paires qualifiées à une **"Hotlist"** (marquée par un `🎯` dans le scanner). Une paire doit passer trois filtres macro stricts pour être considérée :
+**Processus en Entonnoir :**
+1.  **Scan Macro (4h/15m)** : Identifie les paires dans une forte tendance haussière (`Prix > MME50 4h`) qui sont simultanément en phase de consolidation (`Squeeze des Bandes de Bollinger 15m`). Les paires qualifiées sont ajoutées à une **"Hotlist"**.
+2.  **Déclencheur Micro (1m)** : Pour les paires de la "Hotlist", il attend une cassure sur 1 minute confirmée par le momentum (`Clôture > MME9`) et le volume. Des filtres de sécurité stricts (RSI, Mouvement Parabolique) sont appliqués pour éviter les mauvaises entrées.
+3.  **Gestion Dynamique du Trade** : Utilise une séquence sophistiquée de prise de profit partielle, de mise au seuil de rentabilité, et un stop loss suiveur basé sur un pourcentage pour maximiser les gains.
 
-1.  **✅ FILTRE DE TENDANCE MAÎTRE (Le Contexte - Graphique 4h) :** La paire doit être dans une tendance haussière de fond, confirmée et puissante.
-    *   **Condition :** Le prix actuel est **au-dessus de sa Moyenne Mobile Exponentielle 50 (MME50)**. Cela garantit que nous ne tradons qu'avec le momentum dominant du marché.
+---
 
-2.  **✅ FILTRE DE PIC DE VOLUME (La Vérification du Carburant - Graphique 4h) :** La paire doit montrer une augmentation significative de son activité récente, signalant un intérêt institutionnel.
-    *   **Condition :** Le volume de la plus récente bougie de 4 heures est **supérieur à 2 fois le volume moyen des 20 bougies précédentes**. Cela élimine les mouvements sans conviction et concentre le bot sur les actifs qui "se réveillent".
+### 2. Stratégie "Ignition" 🚀 (Nouvelle Stratégie Haute Fréquence)
 
-3.  **✅ COMPRESSION DE VOLATILITÉ (La Préparation - Graphique 15m) :** Le marché doit se consolider et accumuler de l'énergie, comme un ressort que l'on comprime.
-    *   **Condition :** La paire est dans un **"Squeeze" des Bandes de Bollinger**. Ceci est détecté lorsque la largeur des bandes sur la bougie de 15m *précédente* était dans les 25% les plus bas de ses valeurs sur les 50 dernières périodes. Cela signale une accumulation calme avant une expansion probable de la volatilité.
+Ceci est une stratégie agressive conçue pour détecter le tout début des "pumps" de prix explosifs et à fort volume. Elle opère entièrement sur l'échelle de temps de 1 minute et ignore de nombreuses vérifications de sécurité de la stratégie par défaut. **À utiliser avec une extrême prudence.**
 
-Si ces trois conditions sont remplies, la paire est placée sur la **Hotlist**. Le bot "zoome" alors et passe à la Phase 2, analysant chaque bougie de 1 minute pour cette paire spécifique.
+**Détection du Signal (Graphique 1m) :**
+La stratégie recherche l'apparition simultanée de deux événements critiques sur une seule bougie de 1 minute :
 
-### **Phase 2 : Déclencheur Micro & Vérifications de Sécurité (1m)**
+1.  **🔥 Pic de Volume Massif** : Le volume de la bougie doit être **X fois supérieur** au volume moyen récent (ex: 5x). Cela indique un afflux massif d'intérêt.
+2.  **🔥 Accélération Foudroyante du Prix** : Le prix doit avoir augmenté de **Y pourcent** au cours des **Z dernières minutes** (ex: +2% en 5 mins). Cela confirme que le volume se traduit par un puissant mouvement haussier.
 
-Pour les paires sur la Hotlist, et *uniquement* pour celles-ci, le bot attend le moment exact où la cassure commence. Le trade est déclenché instantanément seulement si toutes les micro-conditions et vérifications de sécurité suivantes sont remplies :
+Si les deux conditions sont remplies, un ordre d'achat (`BUY`) est exécuté instantanément.
 
-1.  **✅ CHANGEMENT DE MOMENTUM (L'Étincelle - Graphique 1m) :** Le momentum immédiat à très court terme doit basculer à la hausse.
-    *   **Condition :** Une bougie de 1 minute **clôture au-dessus de la Moyenne Mobile Exponentielle 9 (MME9)**.
-
-2.  **✅ CONFIRMATION PAR LE VOLUME (Le Carburant - Graphique 1m) :** La cassure doit être soutenue par une vague d'intérêt acheteur.
-    *   **Condition :** Le volume de la bougie de déclenchement est significativement supérieur à la moyenne (ex: **> 1.5 fois la moyenne des 20 dernières minutes**).
-
-3.  **⚠️ FILTRE DE SÉCURITÉ 1 : VÉRIFICATION RSI (Le Garde-fou Anti-Surchauffe - Graphique 1h) :** Le bot évite d'acheter sur un marché déjà sur-étendu.
-    *   **Condition :** Le RSI 1 heure doit être **inférieur au seuil de surachat configuré** (ex: < 70).
-
-4.  **⚠️ FILTRE DE SÉCURITÉ 2 : VÉRIFICATION PARABOLIQUE (Le Garde-fou Anti-Fausse Cassure - Graphique 1m) :** Le bot évite d'acheter sur un pic de prix soudain et vertical qui est souvent un piège.
-    *   **Condition :** Le prix n'a **pas augmenté de plus d'un pourcentage configuré** (ex: 3%) sur une courte période de temps (ex: 5 minutes).
-
-Si ces quatre conditions sont remplies, le bot ouvre un ordre d'achat (`BUY`) immédiatement et retire la paire de la Hotlist pour éviter une nouvelle entrée.
-
-### **Phase 3 : Gestion Dynamique du Trade (Protéger & Maximiser les Gains)**
-
-Une fois qu'un trade est ouvert, la gestion de la sortie est tout aussi critique et est entièrement automatisée.
-
-1.  **STOP LOSS (Protection Initiale)** :
-    *   **Placement** : Le Stop Loss initial est placé logiquement juste **en dessous du point bas de la bougie de 1 minute qui a déclenché le trade**. Cela fournit un point d'invalidation serré et structurellement solide.
-    *   **Adaptation Dynamique (ATR)** : Si activé dans les paramètres, la distance du Stop Loss peut être calculée via l'Average True Range (ATR), qui s'adapte automatiquement à la volatilité actuelle de la paire.
-
-2.  **GESTION AVANCÉE DU RISQUE (La Stratégie "Profit Runner")** :
-    Dès qu'un trade devient profitable, une séquence d'actions automatiques est déclenchée pour sécuriser les gains et laisser les gagnants courir :
-    *   **Étape 1 : Prise de Profit Partielle** : Lorsque le trade atteint un objectif de profit configuré, le bot vend une partie de la position (ex: 50%). Cela sécurise un gain initial et réduit considérablement le capital à risque.
-    *   **Étape 2 : Mise à Seuil de Rentabilité (Break-even)** : Immédiatement après la vente partielle, le Stop Loss est déplacé au prix d'entrée. À ce stade, **le trade ne peut plus devenir perdant**.
-    *   **Étape 3 : Stop Loss Suiveur (Trailing Stop Loss)** : Pour le reste de la position, un Stop Loss suiveur est activé. Il suit le prix à la hausse, verrouillant de plus en plus de profit, mais ne descend jamais. Cela permet au bot de "surfer la vague" et de capturer l'intégralité d'un fort mouvement haussier jusqu'à ce que la tendance montre des signes d'inversion.
+**Gestion de Sortie : "Stop Loss Suiveur Éclair" ⚡**
+Pour gérer la volatilité extrême des pumps, cette stratégie utilise un stop loss suiveur unique et très réactif :
+-   Le Stop Loss est continuellement mis à jour pour être placé **juste en dessous du point bas de la bougie de 1 minute *précédente***.
+-   Cette méthode est incroyablement efficace pour verrouiller les profits lors d'une ascension verticale des prix. Si le pump cale ou recule, même pour une minute, la position est automatiquement fermée, sécurisant les gains. Elle est conçue pour une entrée et une sortie rapides.

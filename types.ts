@@ -46,6 +46,7 @@ export interface Trade {
   partial_tp_hit?: boolean;
   realized_pnl?: number; // For tracking profit from partial sells
   entry_snapshot?: ScannedPair; // Capture scanner state at entry
+  strategy?: 'IGNITION' | 'MACRO_MICRO';
 }
 
 export interface StrategyConditions {
@@ -71,7 +72,7 @@ export interface ScannedPair {
     atr_15m?: number; // For ATR Stop Loss calculation
     
     // --- Realtime Calculated Fields ---
-    score: 'STRONG BUY' | 'BUY' | 'HOLD' | 'COOLDOWN' | 'COMPRESSION' | 'FAKE_BREAKOUT';
+    score: 'STRONG BUY' | 'BUY' | 'HOLD' | 'COOLDOWN' | 'COMPRESSION' | 'FAKE_BREAKOUT' | 'IGNITION';
     score_value?: number; // Numerical representation of the score
     conditions?: StrategyConditions;
     conditions_met_count?: number; // From 0 to 5
@@ -161,4 +162,10 @@ export interface BotSettings {
 
     // The single source of truth for the RSI safety filter toggle
     USE_RSI_SAFETY_FILTER: boolean;
+
+    // --- IGNITION STRATEGY ---
+    USE_IGNITION_STRATEGY: boolean;
+    IGNITION_VOLUME_SPIKE_FACTOR: number;
+    IGNITION_PRICE_ACCEL_PERIOD_MINUTES: number;
+    IGNITION_PRICE_ACCEL_THRESHOLD_PCT: number;
 }
