@@ -132,25 +132,67 @@ class RealtimeAnalyzer {
 
         if (bbResult.length < 2 || !atrResult.length) return;
 
+        // --- Core Indicator Calculations ---
         pairToUpdate.atr_15m = atrResult[atrResult.length - 1];
-        
         const lastBB = bbResult[bbResult.length - 1];
         pairToUpdate.bollinger_bands_15m = { ...lastBB, width_pct: (lastBB.upper - lastBB.lower) / lastBB.middle * 100 };
 
+        const volumes15m = klines15m.map(k => k.volume);
+        const lastVolume15m = volumes15m[volumes15m.length - 1];
+        const avgVolume15m = volumes15m.slice(-21, -1).reduce((sum, v) => sum + v, 0) / 20;
+        pairToUpdate.volume_20_period_avg_15m = avgVolume15m;
+
+        // --- Squeeze Calculation ---
         const bbWidths = bbResult.map(b => (b.upper - b.lower) / b.middle);
-        const previousCandleIndex = bbWidths.length - 2;
-        const historyForSqueeze = bbWidths.slice(0, previousCandleIndex + 1).slice(-this.SQUEEZE_LOOKBACK);
-        
+        const historyForSqueeze = bbWidths.slice(0, -1).slice(-this.SQUEEZE_LOOKBACK);
         let wasInSqueeze = false;
         if (historyForSqueeze.length >= 20) {
             const sortedWidths = [...historyForSqueeze].sort((a, b) => a - b);
             const squeezeThreshold = sortedWidths[Math.floor(sortedWidths.length * this.SQUEEZE_PERCENTILE_THRESHOLD)];
-            wasInSqueeze = bbWidths[previousCandleIndex] <= squeezeThreshold;
+            wasInSqueeze = bbWidths[bbWidths.length - 2] <= squeezeThreshold;
         }
         pairToUpdate.is_in_squeeze_15m = wasInSqueeze;
+
+        // --- Assemble all 5 conditions ---
+        const conditions = {
+            trend: pairToUpdate.price_above_ema50_4h === true,
+            squeeze: wasInSqueeze,
+            breakout: closes15m[closes15m.length - 1] > lastBB.upper,
+            volume: this.settings.USE_VOLUME_CONFIRMATION ? (lastVolume15m > avgVolume15m * 2) : true,
+            safety: this.settings.USE_RSI_SAFETY_FILTER ? (pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < this.settings.RSI_OVERBOUGHT_THRESHOLD) : true,
+        };
+        pairToUpdate.conditions = conditions;
+
+        // --- Update Score ---
+        const conditionsMetCount = Object.values(conditions).filter(Boolean).length;
+        pairToUpdate.conditions_met_count = conditionsMetCount;
         
-        const isTrendOK = pairToUpdate.price_above_ema50_4h === true;
-        const isOnHotlist = isTrendOK && wasInSqueeze;
+        let scoreText = 'HOLD';
+        let scoreValue = 50;
+
+        if (conditions.trend && conditions.safety) {
+            scoreValue = 60;
+            if (conditions.squeeze) {
+                scoreText = 'COMPRESSION';
+                scoreValue = 80;
+                if (conditions.breakout) {
+                    scoreText = 'BUY';
+                    scoreValue = 90;
+                    if (conditions.volume) {
+                        scoreText = 'STRONG BUY';
+                        scoreValue = 100;
+                    }
+                }
+            }
+        } else if (!conditions.safety) {
+            scoreText = 'COOLDOWN';
+            scoreValue = 40;
+        }
+        pairToUpdate.score = scoreText;
+        pairToUpdate.score_value = scoreValue;
+
+        // --- Hotlist Logic ---
+        const isOnHotlist = conditions.trend && conditions.squeeze; // As per Project.md
         pairToUpdate.is_on_hotlist = isOnHotlist;
 
         if (isOnHotlist && !old_hotlist_status) {
@@ -160,15 +202,6 @@ class RealtimeAnalyzer {
             this.log('SCANNER', `[HOTLIST REMOVED] ${symbol} no longer meets macro conditions.`);
             this.removeSymbolFrom1mStream(symbol);
         }
-
-        const conditions = {
-            trend: isTrendOK,
-            squeeze: wasInSqueeze,
-            safety: pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < this.settings.RSI_OVERBOUGHT_THRESHOLD,
-        };
-        const conditionsMetCount = Object.values(conditions).filter(Boolean).length;
-        pairToUpdate.conditions_met_count = conditionsMetCount;
-        pairToUpdate.score_value = (conditionsMetCount / Object.keys(conditions).length) * 100;
 
         this.broadcast({ type: 'SCANNER_UPDATE', payload: pairToUpdate });
     }
