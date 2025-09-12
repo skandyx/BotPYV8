@@ -302,6 +302,25 @@ const getBinanceAccountInfo = async () => {
     }
 };
 
+const syncRealBalance = async () => {
+    if (botState.tradingMode === 'VIRTUAL') return;
+    try {
+        const accountInfo = await getBinanceAccountInfo();
+        const usdtBalance = accountInfo.balances.find(b => b.asset === 'USDT');
+        if (usdtBalance) {
+            const realBalance = parseFloat(usdtBalance.free);
+            if (botState.balance !== realBalance) {
+                log('INFO', `Syncing real Binance balance. Old: ${botState.balance.toFixed(2)}, New: ${realBalance.toFixed(2)}`);
+                botState.balance = realBalance;
+                await saveData('state');
+                broadcast({ type: 'POSITIONS_UPDATED' }); // Trigger UI refresh for balance
+            }
+        }
+    } catch (error) {
+        log('ERROR', `Failed to sync real Binance balance: ${error.message}. Check API keys and permissions.`);
+    }
+};
+
 
 // --- Binance WebSocket for Real-time Kline Data ---
 let binanceWs = null;
@@ -532,6 +551,12 @@ async function runScannerCycle() {
             }
         }
         
+        // BUG FIX 1: Perform full 15m analysis on all pairs after hydration/discovery.
+        log('SCANNER', `Performing full 15m analysis on all ${botState.scannerCache.length} cached pairs...`);
+        for (const pair of botState.scannerCache) {
+            realtimeAnalyzer.analyze15mIndicators(pair);
+        }
+        
         updateBinanceSubscriptions(botState.scannerCache.map(p => p.symbol));
         
     } catch (error) {
@@ -552,23 +577,8 @@ const startBot = () => {
         }
     }, 1000);
     
-    setInterval(async () => {
-        if (botState.tradingMode !== 'VIRTUAL' && botState.isRunning) {
-            try {
-                const accountInfo = await getBinanceAccountInfo();
-                const usdtBalance = accountInfo.balances.find(b => b.asset === 'USDT');
-                if (usdtBalance) {
-                    const realBalance = parseFloat(usdtBalance.free);
-                    if (botState.balance !== realBalance) {
-                        log('INFO', `Syncing real Binance balance. Old: ${botState.balance.toFixed(2)}, New: ${realBalance.toFixed(2)}`);
-                        botState.balance = realBalance;
-                    }
-                }
-            } catch (error) {
-                log('ERROR', `Failed to sync real Binance balance: ${error.message}`);
-            }
-        }
-    }, 30000);
+    // BUG FIX 2: Use the centralized sync function for periodic balance updates.
+    setInterval(syncRealBalance, 30000);
 
     connectToBinanceStreams();
     
@@ -686,26 +696,11 @@ app.post('/api/settings', requireAuth, async (req, res) => {
     res.json({ success: true });
 });
 
-app.get('/api/status', requireAuth, async (req, res) => {
-    let currentBalance = botState.balance;
-
-    if (botState.tradingMode !== 'VIRTUAL') {
-        try {
-            const accountInfo = await getBinanceAccountInfo();
-            const usdtBalance = accountInfo.balances.find(b => b.asset === 'USDT');
-            if (usdtBalance) {
-                currentBalance = parseFloat(usdtBalance.free);
-            } else {
-                log('WARN', 'Could not find USDT balance in Binance account response. Using internal value.');
-            }
-        } catch (error) {
-            log('ERROR', `Could not fetch real Binance balance for status, falling back to internal state: ${error.message}`);
-        }
-    }
-
+// BUG FIX 2: Simplified status endpoint to trust the background-synced state.
+app.get('/api/status', requireAuth, (req, res) => {
     res.json({
         mode: botState.tradingMode,
-        balance: currentBalance,
+        balance: botState.balance,
         positions: botState.activePositions.length,
         monitored_pairs: botState.scannerCache.length,
         top_pairs: botState.scannerCache
@@ -845,12 +840,24 @@ app.post('/api/bot/stop', requireAuth, async (req, res) => {
 app.get('/api/mode', requireAuth, (req, res) => {
     res.json({ mode: botState.tradingMode });
 });
+
+// BUG FIX 2: Updated mode switching to be immediate and robust.
 app.post('/api/mode', requireAuth, async (req, res) => {
     const { mode } = req.body;
     if (['VIRTUAL', 'REAL_PAPER', 'REAL_LIVE'].includes(mode)) {
         botState.tradingMode = mode;
-        await saveData('state');
         log('INFO', `Trading mode switched to ${mode}.`);
+        
+        if (mode === 'VIRTUAL') {
+            // On switching back to VIRTUAL, reset balance from settings
+            botState.balance = botState.settings.INITIAL_VIRTUAL_BALANCE;
+            await saveData('state');
+            broadcast({ type: 'POSITIONS_UPDATED' });
+        } else {
+            // Immediately sync balance when switching to a REAL mode
+            await syncRealBalance(); 
+        }
+
         res.json({ success: true, mode: botState.tradingMode });
     } else {
         res.status(400).json({ success: false, message: 'Invalid mode.' });
