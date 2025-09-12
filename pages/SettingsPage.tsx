@@ -24,8 +24,8 @@ const tooltips: Record<string, string> = {
     REQUIRE_STRONG_BUY: "Si activé, le bot n'ouvrira de nouvelles transactions que pour les paires avec un score 'STRONG BUY'. Il ignorera les paires avec un score 'BUY' régulier, rendant la stratégie plus sélective.",
     LOSS_COOLDOWN_HOURS: "Anti-Churn : Si une transaction sur un symbole est clôturée à perte, le bot sera empêché de trader ce même symbole pendant ce nombre d'heures.",
     EXCLUDED_PAIRS: "Une liste de paires séparées par des virgules à ignorer complètement, quel que soit leur volume (par exemple, USDCUSDT,FDUSDUSDT).",
-    BINANCE_API_KEY: "Votre clé API publique Binance. Requise pour les modes de trading live et paper.",
-    BINANCE_SECRET_KEY: "Votre clé API secrète Binance. Elle est stockée en toute sécurité sur le serveur et n'est jamais exposée au frontend.",
+    BINANCE_API_KEY: "Votre clé API publique Binance. Elle est stockée chiffrée sur le serveur et déchiffrée en mémoire uniquement au démarrage.",
+    BINANCE_SECRET_KEY: "Votre clé API secrète Binance. Elle est stockée chiffrée sur le serveur et n'est jamais exposée en clair.",
     USE_ATR_STOP_LOSS: "Utiliser un Stop Loss dynamique basé sur l'Average True Range (ATR), qui s'adapte à la volatilité du marché au lieu d'un pourcentage fixe.",
     ATR_MULTIPLIER: "Le multiplicateur à appliquer à la valeur ATR pour définir la distance du Stop Loss (ex: 1.5 signifie que le SL sera à 1.5 * ATR en dessous du prix d'entrée).",
     USE_AUTO_BREAKEVEN: "Déplacer automatiquement le Stop Loss au prix d'entrée une fois qu'un trade est en profit, éliminant le risque de perte.",
@@ -45,7 +45,11 @@ const tooltips: Record<string, string> = {
     USE_IGNITION_STRATEGY: "Active une stratégie alternative à haute fréquence conçue pour détecter et trader les départs de 'pumps' violents. Désactive la stratégie 'Chasseur de Précision'. Utiliser avec prudence.",
     IGNITION_VOLUME_SPIKE_FACTOR: "Le multiplicateur de volume requis pour déclencher un signal. Ex: '5' signifie que le volume de la bougie 1m doit être 5 fois supérieur à la moyenne des 20 dernières.",
     IGNITION_PRICE_ACCEL_PERIOD_MINUTES: "La période en minutes sur laquelle mesurer l'accélération du prix.",
-    IGNITION_PRICE_ACCEL_THRESHOLD_PCT: "L'augmentation de prix minimale (%) requise sur la période d'accélération pour déclencher un signal."
+    IGNITION_PRICE_ACCEL_THRESHOLD_PCT: "L'augmentation de prix minimale (%) requise sur la période d'accélération pour déclencher un signal.",
+    IGNITION_MAX_SPREAD_PCT: "Filtre de Liquidité : Le trade sera annulé si l'écart (spread) entre le prix d'achat et de vente est supérieur à ce pourcentage. Protège contre les pumps illiquides.",
+    IGNITION_TSL_USE_ATR_BUFFER: "Active un 'coussin' de sécurité sur le Stop Loss Suiveur Éclair, basé sur la volatilité récente (ATR). Donne au trade un peu d'espace pour respirer et évite les sorties prématurées dues au bruit.",
+    IGNITION_TSL_ATR_MULTIPLIER: "Multiplicateur de l'ATR (1m) pour calculer la taille du buffer. Une valeur plus grande donne plus d'espace (ex: 0.5). Mettre à 0 équivaut à désactiver le buffer.",
+    REAL_MODE_READ_ONLY: "Kill-Switch : Si activé, le bot ne pourra PAS ouvrir de nouvelles positions en mode 'Réel (Papier)' ou 'Réel (Live)'. Il continuera de gérer les positions existantes. C'est un interrupteur de sécurité."
 };
 
 const inputClass = "mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white";
@@ -272,10 +276,21 @@ const SettingsPage: React.FC = () => {
                         <h3 className="text-lg font-semibold text-white mb-4">Stratégie d'Ignition 🚀</h3>
                         <div className="space-y-4">
                             <ToggleField id="USE_IGNITION_STRATEGY" label="Activer la Stratégie d'Ignition" />
-                            <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 transition-opacity ${settings.USE_IGNITION_STRATEGY ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                <InputField id="IGNITION_VOLUME_SPIKE_FACTOR" label="Facteur Pic Vol (x)" />
-                                <InputField id="IGNITION_PRICE_ACCEL_PERIOD_MINUTES" label="Période Accél. (min)" />
-                                <InputField id="IGNITION_PRICE_ACCEL_THRESHOLD_PCT" label="Seuil Accél. (%)" step="0.1" />
+                            <div className={`space-y-4 transition-opacity ${settings.USE_IGNITION_STRATEGY ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <InputField id="IGNITION_VOLUME_SPIKE_FACTOR" label="Facteur Pic Vol (x)" />
+                                    <InputField id="IGNITION_PRICE_ACCEL_PERIOD_MINUTES" label="Période Accél. (min)" />
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                     <InputField id="IGNITION_PRICE_ACCEL_THRESHOLD_PCT" label="Seuil Accél. (%)" step="0.1" />
+                                     <InputField id="IGNITION_MAX_SPREAD_PCT" label="Spread Max Autorisé (%)" step="0.05" />
+                                </div>
+                                <hr className="border-gray-700"/>
+                                <h4 className="text-md font-semibold text-gray-200">Stop Loss Suiveur Éclair ⚡</h4>
+                                <ToggleField id="IGNITION_TSL_USE_ATR_BUFFER" label="Utiliser un Buffer ATR Adaptatif" />
+                                <div className={`transition-opacity ${settings.IGNITION_TSL_USE_ATR_BUFFER ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                    <InputField id="IGNITION_TSL_ATR_MULTIPLIER" label="Multiplicateur ATR (Buffer)" step="0.1" />
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -346,19 +361,19 @@ const SettingsPage: React.FC = () => {
             {/* API and Security Section */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                  <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
-                     <h3 className="text-lg font-semibold text-white mb-4">Clés API</h3>
+                     <h3 className="text-lg font-semibold text-white mb-4">Clés API (Chiffrées)</h3>
                      <div className="space-y-4">
                         <div>
                             <label htmlFor="BINANCE_API_KEY" className="flex items-center text-sm font-medium text-gray-300">
                                 Clé API Binance <Tooltip text={tooltips.BINANCE_API_KEY} />
                             </label>
-                             <input type="text" id="BINANCE_API_KEY" value={settings.BINANCE_API_KEY} onChange={(e) => handleChange('BINANCE_API_KEY', e.target.value)} className={inputClass} />
+                             <input type="text" id="BINANCE_API_KEY" value={settings.BINANCE_API_KEY} onChange={(e) => handleChange('BINANCE_API_KEY', e.target.value)} className={inputClass} placeholder="Entrez la nouvelle clé API à sauvegarder" />
                         </div>
                         <div>
                             <label htmlFor="BINANCE_SECRET_KEY" className="flex items-center text-sm font-medium text-gray-300">
                                 Clé Secrète Binance <Tooltip text={tooltips.BINANCE_SECRET_KEY} />
                             </label>
-                            <input type="password" id="BINANCE_SECRET_KEY" value={settings.BINANCE_SECRET_KEY} onChange={(e) => handleChange('BINANCE_SECRET_KEY', e.target.value)} className={inputClass} />
+                            <input type="password" id="BINANCE_SECRET_KEY" value={settings.BINANCE_SECRET_KEY} onChange={(e) => handleChange('BINANCE_SECRET_KEY', e.target.value)} className={inputClass} placeholder="Entrez la nouvelle clé secrète" />
                         </div>
                          <button onClick={handleTestBinanceConnection} disabled={isTestingBinance} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50">
                              {isTestingBinance ? <Spinner size="sm" /> : 'Tester la Connexion Binance'}
@@ -370,6 +385,8 @@ const SettingsPage: React.FC = () => {
                     <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
                          <h3 className="text-lg font-semibold text-white mb-4">Sécurité</h3>
                          <div className="space-y-4">
+                             <ToggleField id="REAL_MODE_READ_ONLY" label="Mode Lecture Seule (Kill-Switch)" />
+                             <hr className="border-gray-700"/>
                              <div>
                                  <label htmlFor="newPassword" className="text-sm font-medium text-gray-300">Nouveau Mot de Passe</label>
                                  <input type="password" id="newPassword" value={newPassword} onChange={e => setNewPassword(e.target.value)} className={inputClass} placeholder="Au moins 8 caractères"/>

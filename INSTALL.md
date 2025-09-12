@@ -72,7 +72,7 @@ sudo systemctl start nginx
 
 ## 3. Application Deployment
 
-### 3.1. Get the Code
+### 3.1. Get the Code & Secure the Project
 
 Clone your application code onto the server from your Git repository.
 
@@ -80,6 +80,38 @@ Clone your application code onto the server from your Git repository.
 # Replace with your repository URL
 git clone <your-git-repository-url> botpy
 cd botpy
+```
+
+**Important: Create a `.gitignore` file** inside the `backend` directory to prevent sensitive files from being committed to your repository.
+
+```bash
+# Navigate to the backend directory
+cd backend
+
+# Create and open the .gitignore file
+nano .gitignore
+```
+
+Paste the following content into the file:
+
+```gitignore
+# Dependencies
+/node_modules
+
+# Environment variables
+.env
+
+# Data and state files (database, etc.)
+/data/
+
+# OS-generated files
+.DS_Store
+```
+
+Save and exit (`CTRL+X`, then `Y`, then `Enter`). Then navigate back to the root project directory.
+
+```bash
+cd ..
 ```
 
 ### 3.2. Install Dependencies
@@ -114,7 +146,8 @@ You **must** set the following variables:
 - `NODE_ENV`: Set to `production` for deployment.
 - `PORT`: The port the backend will run on (e.g., `8080`).
 - `APP_PASSWORD`: A strong, secret password to access the dashboard.
-- `BINANCE_API_KEY` & `BINANCE_SECRET_KEY`.
+- `MASTER_ENCRYPTION_KEY`: A secure 32-character key for encrypting API credentials.
+- `BINANCE_API_KEY_ENCRYPTED` & `BINANCE_SECRET_KEY_ENCRYPTED`.
 
 Save the file and exit (`CTRL+X`, then `Y`, then `Enter`).
 
@@ -134,7 +167,7 @@ This will create an optimized version of your dashboard in a `dist/` directory.
 
 ## 4. Running the Bot with PM2
 
-Now we will start the backend server using PM2. The bot will automatically create a `data/` directory in the `backend/` folder, which will contain `klines.sqlite` and other state files.
+Now we will start the backend server using PM2. The bot will automatically create a `data/` directory in the `backend/` folder, which will contain `klines.sqlite`.
 
 ```bash
 # Go to the backend directory
@@ -166,9 +199,13 @@ The final step is to tell Nginx how to serve your application.
 sudo nano /etc/nginx/sites-available/botpy
 ```
 
-Paste the following configuration into the file. **Remember to replace `botpy.alex-com.tn` with your domain and `8080` with your backend `PORT`.**
+Paste the following configuration into the file. This config tells Nginx to serve your React app and forward any API or WebSocket requests to your backend Node.js server.
+
+**Remember to replace `botpy.alex-com.tn` with your domain and `8080` with your backend `PORT`.**
 
 ```nginx
+# /etc/nginx/sites-available/botpy
+
 server {
     listen 80;
     server_name botpy.alex-com.tn;

@@ -70,6 +70,7 @@ export interface ScannedPair {
     is_in_squeeze_15m?: boolean; // Preparation
     volume_20_period_avg_15m?: number; // Confirmation
     atr_15m?: number; // For ATR Stop Loss calculation
+    atr_1m?: number; // For Ignition TSL buffer calculation
     
     // --- Realtime Calculated Fields ---
     score: 'STRONG BUY' | 'BUY' | 'HOLD' | 'COOLDOWN' | 'COMPRESSION' | 'FAKE_BREAKOUT' | 'IGNITION';
@@ -168,4 +169,10 @@ export interface BotSettings {
     IGNITION_VOLUME_SPIKE_FACTOR: number;
     IGNITION_PRICE_ACCEL_PERIOD_MINUTES: number;
     IGNITION_PRICE_ACCEL_THRESHOLD_PCT: number;
+    IGNITION_MAX_SPREAD_PCT: number; // New: Liquidity filter
+    IGNITION_TSL_USE_ATR_BUFFER: boolean; // New: Adaptive TSL
+    IGNITION_TSL_ATR_MULTIPLIER: number; // New: ATR Multiplier for TSL buffer
+
+    // --- OPERATIONAL SAFETY ---
+    REAL_MODE_READ_ONLY: boolean; // Kill-switch
 }

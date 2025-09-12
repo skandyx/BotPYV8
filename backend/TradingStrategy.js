@@ -1,6 +1,9 @@
 // backend/TradingStrategy.js
 import { RSI, ATR, BollingerBands, EMA } from 'technicalindicators';
 import fetch from 'node-fetch';
+import { RateLimiter } from './RateLimiter.js';
+
+const binanceApiRateLimiter = new RateLimiter(10, 1000); // Max 10 requests per second
 
 class RealtimeAnalyzer {
     constructor(log, getState, broadcast, addSymbolTo1mStream, removeSymbolFrom1mStream, dbService) {
@@ -29,21 +32,23 @@ class RealtimeAnalyzer {
     }
 
     async fetchKlinesFromBinance(symbol, interval, startTime = 0, limit = 500) {
-        let url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-        if (startTime > 0) {
-            url += `&startTime=${startTime + 1}`;
-        }
-        
-        try {
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`Failed to fetch klines for ${symbol} (${interval}). Status: ${response.status}`);
-            const klines = await response.json();
-            if (!Array.isArray(klines)) throw new Error(`Binance klines response for ${symbol} is not an array.`);
-            return klines;
-        } catch (error) {
-            this.log('WARN', `Could not fetch klines for ${symbol} (${interval}): ${error.message}`);
-            return [];
-        }
+        return binanceApiRateLimiter.add(async () => {
+            let url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+            if (startTime > 0) {
+                url += `&startTime=${startTime + 1}`;
+            }
+            
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`Failed to fetch klines for ${symbol} (${interval}). Status: ${response.status}`);
+                const klines = await response.json();
+                if (!Array.isArray(klines)) throw new Error(`Binance klines response for ${symbol} is not an array.`);
+                return klines;
+            } catch (error) {
+                this.log('WARN', `Could not fetch klines for ${symbol} (${interval}): ${error.message}`);
+                return [];
+            }
+        });
     }
 
     async hydrateSymbol(symbol, interval) {
@@ -245,6 +250,17 @@ class RealtimeAnalyzer {
         if (interval === '15m' && !this.settings.USE_IGNITION_STRATEGY) {
             this.analyze15mIndicators(symbol);
         } else if (interval === '1m') {
+            const pair = this.getState().scannerCache.find(p => p.symbol === symbol);
+            if(pair && klines.length > 14) {
+                 const atrResult = ATR.calculate({ 
+                    high: klines.map(k => k.high), 
+                    low: klines.map(k => k.low), 
+                    close: klines.map(k => k.close), 
+                    period: 14 
+                });
+                pair.atr_1m = atrResult.pop();
+            }
+
             if (this.settings.USE_IGNITION_STRATEGY) {
                 this.analyze1mForIgnition(symbol, kline);
             } else {
@@ -261,6 +277,22 @@ function createTradingEngine(log, getState, saveData, broadcast, realtimeAnalyze
             const botState = getState();
             if (!botState.isRunning) return false;
             const s = botState.settings;
+
+            if (botState.tradingMode !== 'VIRTUAL' && s.REAL_MODE_READ_ONLY) {
+                log('WARN', `[KILL-SWITCH] Trade opening for ${pair.symbol} blocked by Read-Only mode.`);
+                return false;
+            }
+            
+            if (strategy === 'IGNITION') {
+                const ticker = botState.bookTickerCache.get(pair.symbol);
+                if (ticker && ticker.bid > 0) {
+                    const spreadPct = ((ticker.ask - ticker.bid) / ticker.bid) * 100;
+                    if (spreadPct > s.IGNITION_MAX_SPREAD_PCT) {
+                        log('TRADE', `[SPREAD FILTER] Skipped Ignition trade for ${pair.symbol}. Spread (${spreadPct.toFixed(3)}%) > threshold (${s.IGNITION_MAX_SPREAD_PCT}%).`);
+                        return false;
+                    }
+                }
+            }
             
             if (strategy === 'MACRO_MICRO') {
                 if (s.USE_RSI_SAFETY_FILTER && (pair.rsi_1h === undefined || pair.rsi_1h === null || pair.rsi_1h >= s.RSI_OVERBOUGHT_THRESHOLD)) {
@@ -398,12 +430,21 @@ function createTradingEngine(log, getState, saveData, broadcast, realtimeAnalyze
                 
                 if (pos.strategy === 'IGNITION') {
                     const klines1m = realtimeAnalyzer.klineData.get(pos.symbol)?.get('1m');
-                    if (klines1m && klines1m.length > 1) {
-                        const previousCandleLow = klines1m[klines1m.length - 2].low;
-                        if (previousCandleLow > pos.stop_loss) {
-                            pos.stop_loss = previousCandleLow;
+                    if (klines1m && klines1m.length > 14) {
+                        const previousCandle = klines1m[klines1m.length - 2];
+                        let newStopLossTarget = previousCandle.low;
+                        
+                        if (s.IGNITION_TSL_USE_ATR_BUFFER) {
+                            const pairData = botState.scannerCache.find(p => p.symbol === pos.symbol);
+                            if (pairData && pairData.atr_1m) {
+                                newStopLossTarget -= pairData.atr_1m * s.IGNITION_TSL_ATR_MULTIPLIER;
+                            }
+                        }
+
+                        if (newStopLossTarget > pos.stop_loss) {
+                            pos.stop_loss = newStopLossTarget;
                             stateHasChanged = true;
-                            log('TRADE', `[${pos.symbol}] Lightning TSL ⚡ updated to $${previousCandleLow.toFixed(4)}.`);
+                            log('TRADE', `[${pos.symbol}] Lightning TSL ⚡ updated to $${newStopLossTarget.toFixed(4)}.`);
                         }
                     }
                 } else if (s.USE_TRAILING_STOP_LOSS && pos.is_at_breakeven) {

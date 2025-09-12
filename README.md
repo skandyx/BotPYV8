@@ -14,6 +14,15 @@ BOTPY is a comprehensive web-based dashboard designed to monitor, control, and a
 -   **Fully Configurable**: Every parameter of both strategies is easily adjustable through a dedicated settings page.
 
 ---
+## 🛡️ Production-Grade Architecture
+
+The bot has been architected with a strong focus on security, data integrity, and operational robustness.
+
+-   **🔒 Encrypted API Keys**: API keys are **never stored in plaintext**. They are encrypted at rest and only decrypted in memory at runtime using a master key, ensuring maximum security.
+-   **🔄 ACID-Compliant State Persistence**: All critical state information (active positions, balance, history) is stored in an **SQLite database**, guaranteeing atomic and consistent data operations. This prevents state corruption in case of unexpected shutdowns.
+-   **🛑 Operational Kill-Switch**: A "Read-Only" mode can be activated from the UI to immediately **prevent the bot from opening any new positions** in real-money modes, serving as a critical safety switch without stopping the entire application.
+-   **🚦 Internal Rate Limiting**: The bot includes an internal API request scheduler to **prevent IP bans from Binance**. It automatically throttles requests to stay within the exchange's rate limits, ensuring smooth operation even during high activity periods.
+---
 
 ## 🎨 Application Pages & Design
 
@@ -59,19 +68,19 @@ This strategy combines high-level **"Macro"** analysis (4h/15m charts) to find h
 This is an aggressive strategy designed to detect the very beginning of explosive, high-volume price "pumps". It operates entirely on the 1-minute timeframe and bypasses many of the safety checks of the default strategy. **Use with extreme caution.**
 
 **Signal Detection (1m Chart):**
-The strategy looks for the simultaneous occurrence of two critical events on a single 1-minute candle:
+The strategy looks for the simultaneous occurrence of three critical events on a single 1-minute candle:
 
-1.  **🔥 Massive Volume Spike**: The candle's volume must be **X times greater** than the recent average volume (e.g., 5x). This indicates a massive influx of interest.
-2.  **🔥 Rapid Price Acceleration**: The price must have increased by **Y percent** over the last **Z minutes** (e.g., +2% in 5 mins). This confirms the volume is translating into a powerful upward move.
+1.  **💧 Liquidity Check**: The bid-ask spread must be below a configurable threshold (e.g., `< 0.5%`) to ensure the market is liquid enough to trade safely.
+2.  **🔥 Massive Volume Spike**: The candle's volume must be **X times greater** than the recent average volume (e.g., 5x). This indicates a massive influx of interest.
+3.  **🔥 Rapid Price Acceleration**: The price must have increased by **Y percent** over the last **Z minutes** (e.g., +2% in 5 mins). This confirms the volume is translating into a powerful upward move.
 
-If both conditions are met, a `BUY` order is executed instantly.
+If all three conditions are met, a `BUY` order is executed instantly.
 
 **Exit Management: "Lightning Trailing Stop Loss" ⚡**
 To manage the extreme volatility of pumps, this strategy uses a unique and highly responsive trailing stop loss:
 -   The Stop Loss is continuously updated to be placed **just below the low of the *previous* 1-minute candle**.
--   This method is incredibly effective at locking in profits during a vertical price ascent. If the pump stalls or retraces even for a minute, the position is automatically closed, securing the gains. It is designed for rapid entry and rapid exit.
-
----
+-   **Adaptive ATR Buffer**: An optional, adaptive buffer based on the 1-minute Average True Range (ATR) can be enabled. This gives the trade a small amount of breathing room based on current volatility, preventing premature stop-outs from market noise while still remaining highly responsive.
+-   This method is incredibly effective at locking in profits during a vertical price ascent. If the pump stalls or retraces even for a minute, the position is automatically closed, securing the gains. It is designed for rapid entry and rapid exit.---
 # Version Française
 
 ## 🧠 Stratégies de Trading Expliquées
@@ -94,14 +103,16 @@ Cette stratégie combine une analyse **"Macro"** (graphiques 4h/15m) pour trouve
 Ceci est une stratégie agressive conçue pour détecter le tout début des "pumps" de prix explosifs et à fort volume. Elle opère entièrement sur l'échelle de temps de 1 minute et ignore de nombreuses vérifications de sécurité de la stratégie par défaut. **À utiliser avec une extrême prudence.**
 
 **Détection du Signal (Graphique 1m) :**
-La stratégie recherche l'apparition simultanée de deux événements critiques sur une seule bougie de 1 minute :
+La stratégie recherche l'apparition simultanée de trois événements critiques sur une seule bougie de 1 minute :
 
-1.  **🔥 Pic de Volume Massif** : Le volume de la bougie doit être **X fois supérieur** au volume moyen récent (ex: 5x). Cela indique un afflux massif d'intérêt.
-2.  **🔥 Accélération Foudroyante du Prix** : Le prix doit avoir augmenté de **Y pourcent** au cours des **Z dernières minutes** (ex: +2% en 5 mins). Cela confirme que le volume se traduit par un puissant mouvement haussier.
+1.  **💧 Filtre de Liquidité** : L'écart (spread) entre le cours acheteur et vendeur doit être inférieur à un seuil configurable (ex: `< 0.5%`) pour s'assurer que le marché est suffisamment liquide.
+2.  **🔥 Pic de Volume Massif** : Le volume de la bougie doit être **X fois supérieur** au volume moyen récent (ex: 5x). Cela indique un afflux massif d'intérêt.
+3.  **🔥 Accélération Foudroyante du Prix** : Le prix doit avoir augmenté de **Y pourcent** au cours des **Z dernières minutes** (ex: +2% en 5 mins). Cela confirme que le volume se traduit par un puissant mouvement haussier.
 
-Si les deux conditions sont remplies, un ordre d'achat (`BUY`) est exécuté instantanément.
+Si les trois conditions sont remplies, un ordre d'achat (`BUY`) est exécuté instantanément.
 
 **Gestion de Sortie : "Stop Loss Suiveur Éclair" ⚡**
 Pour gérer la volatilité extrême des pumps, cette stratégie utilise un stop loss suiveur unique et très réactif :
 -   Le Stop Loss est continuellement mis à jour pour être placé **juste en dessous du point bas de la bougie de 1 minute *précédente***.
+-   **Buffer ATR Adaptatif** : Un "coussin de sécurité" optionnel, basé sur l'Average True Range (ATR) 1-minute, peut être activé. Il donne au trade un petit espace pour respirer en fonction de la volatilité, évitant les sorties prématurées dues au bruit du marché tout en restant très réactif.
 -   Cette méthode est incroyablement efficace pour verrouiller les profits lors d'une ascension verticale des prix. Si le pump cale ou recule, même pour une minute, la position est automatiquement fermée, sécurisant les gains. Elle est conçue pour une entrée et une sortie rapides.

@@ -69,8 +69,22 @@ class DatabaseService {
                 entry_snapshot TEXT
             );
         `;
+        const createActivePositionsTableSQL = `
+             CREATE TABLE IF NOT EXISTS active_positions (
+                id INTEGER PRIMARY KEY,
+                data TEXT NOT NULL
+            );
+        `;
+        const createBotStateTableSQL = `
+            CREATE TABLE IF NOT EXISTS bot_state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+        `;
         await this.db.exec(createKlinesTableSQL);
         await this.db.exec(createTradeHistoryTableSQL);
+        await this.db.exec(createActivePositionsTableSQL);
+        await this.db.exec(createBotStateTableSQL);
         this.log('INFO', '[DB] Tables created or already exist.');
     }
 
@@ -176,7 +190,6 @@ class DatabaseService {
         const sql = `SELECT * FROM trade_history ORDER BY entry_time DESC`;
         try {
             const rows = await this.db.all(sql);
-            // Deserialize the JSON string back into an object
             return rows.map(row => ({
                 ...row,
                 entry_snapshot: row.entry_snapshot ? JSON.parse(row.entry_snapshot) : null
@@ -195,6 +208,80 @@ class DatabaseService {
             this.log('INFO', '[DB] Trade history table has been cleared.');
         } catch (error) {
             this.log('ERROR', `[DB] Failed to clear trade history: ${error.message}`);
+        }
+    }
+
+    // --- ACTIVE POSITIONS & BOT STATE METHODS ---
+    async saveActivePositions(positions) {
+        if (!this.db) return;
+        try {
+            await this.db.run('BEGIN TRANSACTION');
+            await this.db.run('DELETE FROM active_positions');
+            const stmt = await this.db.prepare('INSERT INTO active_positions (id, data) VALUES (?, ?)');
+            for (const pos of positions) {
+                await stmt.run(pos.id, JSON.stringify(pos));
+            }
+            await stmt.finalize();
+            await this.db.run('COMMIT');
+        } catch (error) {
+            this.log('ERROR', `[DB] Failed to save active positions: ${error.message}`);
+            await this.db.run('ROLLBACK');
+        }
+    }
+
+    async loadActivePositions() {
+        if (!this.db) return [];
+        try {
+            const rows = await this.db.all('SELECT data FROM active_positions');
+            return rows.map(row => JSON.parse(row.data));
+        } catch (error) {
+            this.log('ERROR', `[DB] Failed to load active positions: ${error.message}`);
+            return [];
+        }
+    }
+
+    async clearActivePositions() {
+        if (!this.db) return;
+        try {
+            await this.db.run('DELETE FROM active_positions');
+            this.log('INFO', '[DB] Active positions table has been cleared.');
+        } catch (error) {
+            this.log('ERROR', `[DB] Failed to clear active positions: ${error.message}`);
+        }
+    }
+
+    async saveBotState(state) {
+        if (!this.db) return;
+        try {
+            const stmt = await this.db.prepare('INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)');
+            for (const [key, value] of Object.entries(state)) {
+                await stmt.run(key, value.toString());
+            }
+            await stmt.finalize();
+        } catch (error) {
+            this.log('ERROR', `[DB] Failed to save bot state: ${error.message}`);
+        }
+    }
+
+    async loadBotState() {
+        if (!this.db) return {};
+        try {
+            const rows = await this.db.all('SELECT key, value FROM bot_state');
+            const state = {};
+            for (const row of rows) {
+                // Attempt to parse numbers, booleans, etc.
+                if (!isNaN(parseFloat(row.value))) {
+                    state[row.key] = parseFloat(row.value);
+                } else if (row.value === 'true' || row.value === 'false') {
+                    state[row.key] = row.value === 'true';
+                } else {
+                    state[row.key] = row.value;
+                }
+            }
+            return state;
+        } catch (error) {
+            this.log('ERROR', `[DB] Failed to load bot state: ${error.message}`);
+            return {};
         }
     }
 }

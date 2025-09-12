@@ -14,6 +14,7 @@ import fetch from 'node-fetch';
 import { ScannerService } from './ScannerService.js';
 import { createTradingStrategy } from './TradingStrategy.js';
 import { DatabaseService } from './DatabaseService.js';
+import { CryptoService } from './CryptoService.js';
 
 
 // --- Basic Setup ---
@@ -118,13 +119,12 @@ const log = (level, message) => {
 // --- Persistence ---
 const DATA_DIR = path.join(process.cwd(), 'data');
 const SETTINGS_FILE_PATH = path.join(DATA_DIR, 'settings.json');
-const STATE_FILE_PATH = path.join(DATA_DIR, 'state.json');
 const AUTH_FILE_PATH = path.join(DATA_DIR, 'auth.json');
-let isSavingState = false; // CRITICAL FIX: Lock for state saving
-
 const ensureDataDirs = async () => {
     try { await fs.access(DATA_DIR); } catch { await fs.mkdir(DATA_DIR); }
 };
+const dbService = new DatabaseService(log);
+const cryptoService = new CryptoService(process.env.MASTER_ENCRYPTION_KEY, log);
 
 // --- Auth Helpers ---
 const hashPassword = (password) => {
@@ -155,8 +155,6 @@ const verifyPassword = (password, hash) => {
         });
     });
 };
-
-const dbService = new DatabaseService(log);
 
 const loadData = async () => {
     try {
@@ -202,27 +200,28 @@ const loadData = async () => {
             IGNITION_VOLUME_SPIKE_FACTOR: parseFloat(process.env.IGNITION_VOLUME_SPIKE_FACTOR) || 5,
             IGNITION_PRICE_ACCEL_PERIOD_MINUTES: parseInt(process.env.IGNITION_PRICE_ACCEL_PERIOD_MINUTES, 10) || 5,
             IGNITION_PRICE_ACCEL_THRESHOLD_PCT: parseFloat(process.env.IGNITION_PRICE_ACCEL_THRESHOLD_PCT) || 2.0,
+            IGNITION_MAX_SPREAD_PCT: parseFloat(process.env.IGNITION_MAX_SPREAD_PCT) || 0.5,
+            IGNITION_TSL_USE_ATR_BUFFER: process.env.IGNITION_TSL_USE_ATR_BUFFER === 'true',
+            IGNITION_TSL_ATR_MULTIPLIER: parseFloat(process.env.IGNITION_TSL_ATR_MULTIPLIER) || 0.5,
+            REAL_MODE_READ_ONLY: process.env.REAL_MODE_READ_ONLY === 'true',
         };
         await saveData('settings');
     }
-    try {
-        const stateContent = await fs.readFile(STATE_FILE_PATH, 'utf-8');
-        const persistedState = JSON.parse(stateContent);
-        botState.balance = persistedState.balance || botState.settings.INITIAL_VIRTUAL_BALANCE;
-        botState.activePositions = persistedState.activePositions || [];
-        botState.tradeIdCounter = persistedState.tradeIdCounter || 1;
-        botState.isRunning = persistedState.isRunning !== undefined ? persistedState.isRunning : true;
-        botState.tradingMode = persistedState.tradingMode || 'VIRTUAL';
-    } catch {
-        log("WARN", "state.json not found. Initializing default state.");
-        botState.balance = botState.settings.INITIAL_VIRTUAL_BALANCE;
-        await saveData('state');
-    }
+
+    // Load state from DB
+    const persistedState = await dbService.loadBotState();
+    botState.balance = persistedState.balance || botState.settings.INITIAL_VIRTUAL_BALANCE;
+    botState.tradeIdCounter = persistedState.tradeIdCounter || 1;
+    botState.isRunning = persistedState.isRunning !== undefined ? persistedState.isRunning : true;
+    botState.tradingMode = persistedState.tradingMode || 'VIRTUAL';
+    
+    // Load active positions from DB
+    botState.activePositions = await dbService.loadActivePositions();
+    log('INFO', `[DB] Loaded ${botState.activePositions.length} active positions.`);
 
     // Load trade history from DB
     botState.tradeHistory = await dbService.getTradeHistory();
     log('INFO', `[DB] Loaded ${botState.tradeHistory.length} trades from history.`);
-
 
     try {
         const authContent = await fs.readFile(AUTH_FILE_PATH, 'utf-8');
@@ -244,6 +243,10 @@ const loadData = async () => {
         log('INFO', 'Created auth.json with a new secure password hash.');
     }
     
+    // Decrypt API keys after loading settings
+    botState.decryptedApiKey = cryptoService.decrypt(botState.settings.BINANCE_API_KEY);
+    botState.decryptedApiSecret = cryptoService.decrypt(botState.settings.BINANCE_SECRET_KEY);
+
     realtimeAnalyzer.updateSettings(botState.settings);
 };
 
@@ -251,26 +254,14 @@ const saveData = async (type) => {
     if (type === 'settings') {
         await fs.writeFile(SETTINGS_FILE_PATH, JSON.stringify(botState.settings, null, 2));
     } else if (type === 'state') {
-        if (isSavingState) {
-            log('WARN', 'State save operation already in progress, skipping this call to prevent race condition.');
-            return;
-        }
-        isSavingState = true;
-        try {
-            const stateToPersist = {
-                balance: botState.balance,
-                activePositions: botState.activePositions,
-                // tradeHistory is no longer saved in state.json
-                tradeIdCounter: botState.tradeIdCounter,
-                isRunning: botState.isRunning,
-                tradingMode: botState.tradingMode,
-            };
-            await fs.writeFile(STATE_FILE_PATH, JSON.stringify(stateToPersist, null, 2));
-        } catch (error) {
-            log('ERROR', `Failed to save state file: ${error.message}`);
-        } finally {
-            isSavingState = false;
-        }
+        const stateToPersist = {
+            balance: botState.balance,
+            tradeIdCounter: botState.tradeIdCounter,
+            isRunning: botState.isRunning,
+            tradingMode: botState.tradingMode,
+        };
+        await dbService.saveBotState(stateToPersist);
+        await dbService.saveActivePositions(botState.activePositions);
     } else if (type === 'auth') {
         await fs.writeFile(AUTH_FILE_PATH, JSON.stringify({ passwordHash: botState.passwordHash }, null, 2));
     }
@@ -278,9 +269,9 @@ const saveData = async (type) => {
 
 // --- Binance API Helpers ---
 const getBinanceAccountInfo = async () => {
-    const { BINANCE_API_KEY, BINANCE_SECRET_KEY } = botState.settings;
-    if (!BINANCE_API_KEY || !BINANCE_SECRET_KEY) {
-        throw new Error('Binance API Key or Secret is not configured.');
+    const { decryptedApiKey, decryptedApiSecret } = botState;
+    if (!decryptedApiKey || !decryptedApiSecret) {
+        throw new Error('Binance API Key or Secret is not configured or failed to decrypt.');
     }
 
     const endpoint = 'https://api.binance.com/api/v3/account';
@@ -288,7 +279,7 @@ const getBinanceAccountInfo = async () => {
     const queryString = `timestamp=${timestamp}`;
     
     const signature = crypto
-        .createHmac('sha256', BINANCE_SECRET_KEY)
+        .createHmac('sha256', decryptedApiSecret)
         .update(queryString)
         .digest('hex');
 
@@ -297,7 +288,7 @@ const getBinanceAccountInfo = async () => {
     try {
         const response = await fetch(url, {
             method: 'GET',
-            headers: { 'X-MBX-APIKEY': BINANCE_API_KEY }
+            headers: { 'X-MBX-APIKEY': decryptedApiKey }
         });
 
         const data = await response.json();
@@ -365,6 +356,11 @@ function connectToBinanceStreams() {
                     broadcast({ type: 'SCANNER_UPDATE', payload: updatedPair });
                 }
                 broadcast({ type: 'PRICE_UPDATE', payload: {symbol: symbol, price: newPrice } });
+            } else if (msg.e === 'bookTicker') {
+                botState.bookTickerCache.set(msg.s, {
+                    bid: parseFloat(msg.b),
+                    ask: parseFloat(msg.a)
+                });
             }
         } catch (e) {
             log('ERROR', `Error processing Binance WS message: ${e.message}`);
@@ -387,6 +383,9 @@ function updateBinanceSubscriptions(baseSymbols) {
     
     allSymbolsForTickers.forEach(s => {
         newStreams.add(`${s.toLowerCase()}@ticker`);
+        if (botState.settings.USE_IGNITION_STRATEGY) {
+            newStreams.add(`${s.toLowerCase()}@bookTicker`);
+        }
     });
 
     if (!botState.settings.USE_IGNITION_STRATEGY) {
@@ -446,6 +445,8 @@ function removeSymbolFrom1mStream(symbol) {
 // --- Bot State & Core Logic ---
 let botState = {
     settings: {},
+    decryptedApiKey: null,
+    decryptedApiSecret: null,
     balance: 10000,
     activePositions: [],
     tradeHistory: [],
@@ -457,6 +458,7 @@ let botState = {
     recentlyLostSymbols: new Map(),
     hotlist: new Set(),
     priceCache: new Map(),
+    bookTickerCache: new Map(),
 };
 
 const scanner = new ScannerService(log);
@@ -637,13 +639,31 @@ app.post('/api/change-password', requireAuth, async (req, res) => {
 
 
 app.get('/api/settings', requireAuth, (req, res) => {
-    res.json(botState.settings);
+    // Never send the decrypted keys to the frontend.
+    // Send the encrypted (or original) keys from the settings object.
+    const settingsToSend = {
+        ...botState.settings,
+        BINANCE_API_KEY: botState.settings.BINANCE_API_KEY || '',
+        BINANCE_SECRET_KEY: botState.settings.BINANCE_SECRET_KEY ? '********' : '' // Mask secret
+    };
+    res.json(settingsToSend);
 });
 
 app.post('/api/settings', requireAuth, async (req, res) => {
     const oldSettings = { ...botState.settings };
+    const newSettings = { ...botState.settings, ...req.body };
     
-    botState.settings = { ...botState.settings, ...req.body };
+    // If API keys are updated, encrypt them before saving
+    if (newSettings.BINANCE_API_KEY !== oldSettings.BINANCE_API_KEY) {
+        newSettings.BINANCE_API_KEY = cryptoService.encrypt(newSettings.BINANCE_API_KEY);
+    }
+    if (req.body.BINANCE_SECRET_KEY && req.body.BINANCE_SECRET_KEY !== '********') {
+        newSettings.BINANCE_SECRET_KEY = cryptoService.encrypt(req.body.BINANCE_SECRET_KEY);
+    } else {
+        newSettings.BINANCE_SECRET_KEY = oldSettings.BINANCE_SECRET_KEY; // Keep old one if not changed
+    }
+
+    botState.settings = newSettings;
     
     if (botState.tradingMode === 'VIRTUAL' && botState.settings.INITIAL_VIRTUAL_BALANCE !== oldSettings.INITIAL_VIRTUAL_BALANCE) {
         botState.balance = botState.settings.INITIAL_VIRTUAL_BALANCE;
@@ -653,6 +673,8 @@ app.post('/api/settings', requireAuth, async (req, res) => {
     }
 
     await saveData('settings');
+    botState.decryptedApiKey = cryptoService.decrypt(botState.settings.BINANCE_API_KEY);
+    botState.decryptedApiSecret = cryptoService.decrypt(botState.settings.BINANCE_SECRET_KEY);
     realtimeAnalyzer.updateSettings(botState.settings);
     
     if (botState.settings.SCANNER_DISCOVERY_INTERVAL_SECONDS !== oldSettings.SCANNER_DISCOVERY_INTERVAL_SECONDS) {
@@ -763,26 +785,33 @@ app.post('/api/clear-data', requireAuth, async (req, res) => {
     botState.tradeHistory = [];
     botState.tradeIdCounter = 1;
     await dbService.clearTradeHistory();
+    await dbService.clearActivePositions();
     await saveData('state');
     broadcast({ type: 'POSITIONS_UPDATED' });
     res.json({ success: true });
 });
 
 app.post('/api/test-connection', requireAuth, async (req, res) => {
-    const { apiKey, secretKey } = req.body;
+    let { apiKey, secretKey } = req.body;
     if (!apiKey || !secretKey) {
         return res.status(400).json({ success: false, message: 'API Key and Secret are required.' });
     }
+    
+    // Attempt to decrypt if they look like they might be encrypted, otherwise use as-is
+    // This allows testing a new key before saving it
+    const decryptedKey = cryptoService.isEncrypted(apiKey) ? cryptoService.decrypt(apiKey) : apiKey;
+    const decryptedSecret = cryptoService.isEncrypted(secretKey) ? cryptoService.decrypt(secretKey) : secretKey;
+
     try {
         const endpoint = 'https://api.binance.com/api/v3/account';
         const timestamp = Date.now();
         const queryString = `timestamp=${timestamp}`;
-        const signature = crypto.createHmac('sha256', secretKey).update(queryString).digest('hex');
+        const signature = crypto.createHmac('sha256', decryptedSecret).update(queryString).digest('hex');
         const url = `${endpoint}?${queryString}&signature=${signature}`;
         
         const response = await fetch(url, {
             method: 'GET',
-            headers: { 'X-MBX-APIKEY': apiKey }
+            headers: { 'X-MBX-APIKEY': decryptedKey }
         });
 
         const data = await response.json();
