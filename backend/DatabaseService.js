@@ -17,6 +17,24 @@ class DatabaseService {
         this.db = null;
         this.log = log;
         this.dbPath = path.join(process.cwd(), 'data', 'klines.sqlite');
+        // Promise chain to act as a write queue/mutex
+        this.writeLock = Promise.resolve();
+    }
+
+    /**
+     * Enqueues a write operation to ensure sequential execution and prevent race conditions.
+     * @param {() => Promise<any>} task The async function to execute.
+     * @returns {Promise<any>} A promise that resolves when the task is complete.
+     */
+    _enqueueWrite(task) {
+        const taskPromise = () => new Promise((resolve, reject) => {
+            // The task function itself should handle its own errors.
+            // This outer promise ensures the chain continues.
+            task().then(resolve).catch(reject);
+        });
+        
+        this.writeLock = this.writeLock.then(taskPromise, taskPromise);
+        return this.writeLock;
     }
 
     async init() {
@@ -92,23 +110,24 @@ class DatabaseService {
     async saveKlines(symbol, interval, klines) {
         if (!this.db || !klines || klines.length === 0) return;
 
-        const stmt = await this.db.prepare(`
-            INSERT OR REPLACE INTO klines (symbol, interval, open_time, open, high, low, close, volume, close_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-
-        try {
-            await this.db.run('BEGIN TRANSACTION');
-            for (const k of klines) {
-                await stmt.run(symbol, interval, k.openTime, k.open, k.high, k.low, k.close, k.volume, k.closeTime);
+        await this._enqueueWrite(async () => {
+            const stmt = await this.db.prepare(`
+                INSERT OR REPLACE INTO klines (symbol, interval, open_time, open, high, low, close, volume, close_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            try {
+                await this.db.run('BEGIN TRANSACTION');
+                for (const k of klines) {
+                    await stmt.run(symbol, interval, k.openTime, k.open, k.high, k.low, k.close, k.volume, k.closeTime);
+                }
+                await this.db.run('COMMIT');
+            } catch (error) {
+                this.log('ERROR', `[DB] Bulk kline save transaction failed for ${symbol} [${interval}]: ${error.message}`);
+                await this.db.run('ROLLBACK').catch(err => this.log('ERROR', `[DB] Rollback failed: ${err.message}`));
+            } finally {
+                await stmt.finalize();
             }
-            await this.db.run('COMMIT');
-        } catch (error) {
-            this.log('ERROR', `[DB] Bulk kline save transaction failed for ${symbol} [${interval}]: ${error.message}`);
-            await this.db.run('ROLLBACK');
-        } finally {
-            await stmt.finalize();
-        }
+        });
         
         await this.pruneKlines(symbol, interval);
     }
@@ -145,44 +164,46 @@ class DatabaseService {
         const limit = KLINE_HISTORY_LIMITS[interval];
         if (!limit) return;
         
-        const sql = `
-            DELETE FROM klines
-            WHERE rowid IN (
-                SELECT rowid FROM klines
-                WHERE symbol = ? AND interval = ?
-                ORDER BY open_time DESC
-                LIMIT -1 OFFSET ?
-            )
-        `;
-
-        try {
-            await this.db.run(sql, symbol, interval, limit);
-        } catch (error) {
-            this.log('ERROR', `[DB] Failed to prune klines for ${symbol} [${interval}]: ${error.message}`);
-        }
+        await this._enqueueWrite(async () => {
+            const sql = `
+                DELETE FROM klines
+                WHERE rowid IN (
+                    SELECT rowid FROM klines
+                    WHERE symbol = ? AND interval = ?
+                    ORDER BY open_time DESC
+                    LIMIT -1 OFFSET ?
+                )
+            `;
+            try {
+                await this.db.run(sql, symbol, interval, limit);
+            } catch (error) {
+                this.log('ERROR', `[DB] Failed to prune klines for ${symbol} [${interval}]: ${error.message}`);
+            }
+        });
     }
     
     // --- TRADE HISTORY METHODS ---
     async saveTrade(trade) {
         if (!this.db || !trade) return;
         
-        const sql = `
-            INSERT OR REPLACE INTO trade_history (
-                id, mode, symbol, side, entry_price, exit_price, quantity, initial_quantity,
-                stop_loss, take_profit, entry_time, exit_time, pnl, pnl_pct, status, strategy, entry_snapshot
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `;
-        
-        try {
-            await this.db.run(sql,
-                trade.id, trade.mode, trade.symbol, trade.side, trade.entry_price, trade.exit_price,
-                trade.quantity, trade.initial_quantity, trade.stop_loss, trade.take_profit, trade.entry_time,
-                trade.exit_time, trade.pnl, trade.pnl_pct, trade.status, trade.strategy,
-                JSON.stringify(trade.entry_snapshot)
-            );
-        } catch (error) {
-             this.log('ERROR', `[DB] Failed to save trade ID ${trade.id}: ${error.message}`);
-        }
+        return this._enqueueWrite(async () => {
+            const sql = `
+                INSERT OR REPLACE INTO trade_history (
+                    id, mode, symbol, side, entry_price, exit_price, quantity, initial_quantity,
+                    stop_loss, take_profit, entry_time, exit_time, pnl, pnl_pct, status, strategy, entry_snapshot
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `;
+            try {
+                await this.db.run(sql,
+                    trade.id, trade.mode, trade.symbol, trade.side, trade.entry_price, trade.exit_price,
+                    trade.quantity, trade.initial_quantity, trade.stop_loss, trade.take_profit, trade.entry_time,
+                    trade.exit_time, trade.pnl, trade.pnl_pct, trade.status, trade.strategy,
+                    JSON.stringify(trade.entry_snapshot)
+                );
+            } catch (error) {
+                 this.log('ERROR', `[DB] Failed to save trade ID ${trade.id}: ${error.message}`);
+            }
+        });
     }
     
     async getTradeHistory() {
@@ -202,31 +223,35 @@ class DatabaseService {
     
     async clearTradeHistory() {
         if (!this.db) return;
-        const sql = `DELETE FROM trade_history`;
-        try {
-            await this.db.run(sql);
-            this.log('INFO', '[DB] Trade history table has been cleared.');
-        } catch (error) {
-            this.log('ERROR', `[DB] Failed to clear trade history: ${error.message}`);
-        }
+        return this._enqueueWrite(async () => {
+            const sql = `DELETE FROM trade_history`;
+            try {
+                await this.db.run(sql);
+                this.log('INFO', '[DB] Trade history table has been cleared.');
+            } catch (error) {
+                this.log('ERROR', `[DB] Failed to clear trade history: ${error.message}`);
+            }
+        });
     }
 
     // --- ACTIVE POSITIONS & BOT STATE METHODS ---
     async saveActivePositions(positions) {
         if (!this.db) return;
-        try {
-            await this.db.run('BEGIN TRANSACTION');
-            await this.db.run('DELETE FROM active_positions');
-            const stmt = await this.db.prepare('INSERT INTO active_positions (id, data) VALUES (?, ?)');
-            for (const pos of positions) {
-                await stmt.run(pos.id, JSON.stringify(pos));
+        return this._enqueueWrite(async () => {
+            try {
+                await this.db.run('BEGIN TRANSACTION');
+                await this.db.run('DELETE FROM active_positions');
+                const stmt = await this.db.prepare('INSERT INTO active_positions (id, data) VALUES (?, ?)');
+                for (const pos of positions) {
+                    await stmt.run(pos.id, JSON.stringify(pos));
+                }
+                await stmt.finalize();
+                await this.db.run('COMMIT');
+            } catch (error) {
+                this.log('ERROR', `[DB] Failed to save active positions: ${error.message}`);
+                await this.db.run('ROLLBACK').catch(err => this.log('ERROR', `[DB] Rollback failed: ${err.message}`));
             }
-            await stmt.finalize();
-            await this.db.run('COMMIT');
-        } catch (error) {
-            this.log('ERROR', `[DB] Failed to save active positions: ${error.message}`);
-            await this.db.run('ROLLBACK');
-        }
+        });
     }
 
     async loadActivePositions() {
@@ -242,25 +267,29 @@ class DatabaseService {
 
     async clearActivePositions() {
         if (!this.db) return;
-        try {
-            await this.db.run('DELETE FROM active_positions');
-            this.log('INFO', '[DB] Active positions table has been cleared.');
-        } catch (error) {
-            this.log('ERROR', `[DB] Failed to clear active positions: ${error.message}`);
-        }
+        return this._enqueueWrite(async () => {
+            try {
+                await this.db.run('DELETE FROM active_positions');
+                this.log('INFO', '[DB] Active positions table has been cleared.');
+            } catch (error) {
+                this.log('ERROR', `[DB] Failed to clear active positions: ${error.message}`);
+            }
+        });
     }
 
     async saveBotState(state) {
         if (!this.db) return;
-        try {
-            const stmt = await this.db.prepare('INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)');
-            for (const [key, value] of Object.entries(state)) {
-                await stmt.run(key, value.toString());
+        return this._enqueueWrite(async () => {
+            try {
+                const stmt = await this.db.prepare('INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)');
+                for (const [key, value] of Object.entries(state)) {
+                    await stmt.run(key, value.toString());
+                }
+                await stmt.finalize();
+            } catch (error) {
+                this.log('ERROR', `[DB] Failed to save bot state: ${error.message}`);
             }
-            await stmt.finalize();
-        } catch (error) {
-            this.log('ERROR', `[DB] Failed to save bot state: ${error.message}`);
-        }
+        });
     }
 
     async loadBotState() {
@@ -270,7 +299,7 @@ class DatabaseService {
             const state = {};
             for (const row of rows) {
                 // Attempt to parse numbers, booleans, etc.
-                if (!isNaN(parseFloat(row.value))) {
+                if (!isNaN(parseFloat(row.value)) && isFinite(row.value)) {
                     state[row.key] = parseFloat(row.value);
                 } else if (row.value === 'true' || row.value === 'false') {
                     state[row.key] = row.value === 'true';
