@@ -106,6 +106,9 @@ Paste the following content into the file:
 
 # OS-generated files
 .DS_Store
+
+# Utility scripts
+encrypt-keys.js
 ```
 
 Save and exit (`CTRL+X`, then `Y`, then `Enter`). Then navigate back to the root project directory.
@@ -147,9 +150,26 @@ You **must** set the following variables:
 - `PORT`: The port the backend will run on (e.g., `8080`).
 - `APP_PASSWORD`: A strong, secret password to access the dashboard.
 - `MASTER_ENCRYPTION_KEY`: A secure 32-character key for encrypting API credentials.
-- `BINANCE_API_KEY_ENCRYPTED` & `BINANCE_SECRET_KEY_ENCRYPTED`.
 
-Save the file and exit (`CTRL+X`, then `Y`, then `Enter`).
+**Do not enter your API keys yet.** Save the file and exit (`CTRL+X`, then `Y`, then `Enter`).
+
+### 3.3.1. Encrypt API Keys (CRITICAL STEP)
+
+Your API keys **must be encrypted** before being stored. Use the provided utility script for this.
+
+```bash
+# Make sure you are in the /backend directory
+node encrypt-keys.js
+```
+
+The script will prompt you to enter your **plaintext** Binance API Key and Secret Key. It will then output the **encrypted versions**.
+
+1.  **Copy** the encrypted API Key.
+2.  Open your `.env` file again: `nano .env`.
+3.  Paste the encrypted key into the `BINANCE_API_KEY_ENCRYPTED` variable.
+4.  **Copy** the encrypted Secret Key.
+5.  Paste it into the `BINANCE_SECRET_KEY_ENCRYPTED` variable.
+6.  Save and close the file.
 
 ### 3.4. Build the Frontend
 

@@ -65,8 +65,8 @@ IGNITION_MAX_SPREAD_PCT=0.5
 IGNITION_TSL_USE_ATR_BUFFER=true
 IGNITION_TSL_ATR_MULTIPLIER=0.5
 
-# --- API CREDENTIALS (ENCRYPTED) ---
-# NOTE: These keys should be ENCRYPTED using an offline script with your MASTER_ENCRYPTION_KEY.
-# The bot will decrypt them in memory at startup. Do NOT store plaintext keys here.
-BINANCE_API_KEY=votre_cle_api_binance_chiffree
-BINANCE_SECRET_KEY=votre_cle_secrete_binance_chiffree
+# --- API CREDENTIALS (MUST BE ENCRYPTED) ---
+# NOTE: Utilisez le script `node encrypt-keys.js` pour générer ces valeurs.
+# Ne stockez JAMAIS vos clés en clair ici.
+BINANCE_API_KEY_ENCRYPTED=votre_cle_api_binance_chiffree
+BINANCE_SECRET_KEY_ENCRYPTED=votre_cle_secrete_binance_chiffree
