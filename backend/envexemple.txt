@@ -1,0 +1,81 @@
+# -----------------------------------------------------------------------------
+# BOTPY BACKEND ENVIRONMENT CONFIGURATION
+#
+# Instructions:
+# 1. Copiez ce fichier et renommez-le en ".env" dans le même dossier (/backend).
+# 2. Remplissez les valeurs ci-dessous avec vos propres informations.
+# 3. Ne partagez jamais votre fichier .env publiquement.
+# -----------------------------------------------------------------------------
+
+# --- CORE SETTINGS ---
+NODE_ENV=production
+PORT=8080
+APP_PASSWORD=votre_mot_de_passe_secret
+
+# --- TRADING PARAMETERS ---
+INITIAL_VIRTUAL_BALANCE=10000
+MAX_OPEN_POSITIONS=5
+POSITION_SIZE_PCT=2.0
+TAKE_PROFIT_PCT=4.0
+STOP_LOSS_PCT=2.0
+USE_TRAILING_STOP_LOSS=true
+TRAILING_STOP_LOSS_PCT=1.5
+SLIPPAGE_PCT=0.05
+
+# --- STRATEGY & SCANNER FILTERS ---
+MIN_VOLUME_USD=400000000
+SCANNER_DISCOVERY_INTERVAL_SECONDS=3600
+EXCLUDED_PAIRS="USDCUSDT,FDUSDUSDT"
+USE_VOLUME_CONFIRMATION=true
+USE_MARKET_REGIME_FILTER=true
+REQUIRE_STRONG_BUY=false
+LOSS_COOLDOWN_HOURS=4
+
+# --- ADVANCED STRATEGY & RISK MANAGEMENT ---
+# Utiliser un Stop Loss dynamique basé sur l'ATR (Average True Range). (true/false)
+# S'adapte à la volatilité du marché. Recommandé pour le profil PRUDENT.
+USE_ATR_STOP_LOSS=false
+# Le multiplicateur à appliquer à l'ATR pour définir la distance du Stop Loss (ex: 1.5).
+ATR_MULTIPLIER=1.5
+
+# Déplacer automatiquement le Stop Loss au point d'entrée une fois qu'un trade est profitable. (true/false)
+# Élimine le risque qu'un trade gagnant se transforme en perte.
+USE_AUTO_BREAKEVEN=true
+# Le pourcentage de profit (%) pour déclencher le break-even (ex: 0.5 pour +0.5%).
+BREAKEVEN_TRIGGER_PCT=0.5
+# Si activé, le break-even couvrira aussi les frais de transaction (true/false).
+ADJUST_BREAKEVEN_FOR_FEES=true
+# Le pourcentage de frais par ordre (ex: 0.1 pour 0.1%).
+TRANSACTION_FEE_PCT=0.1
+
+# Empêcher l'ouverture de trades si le RSI est en zone de surachat. (true/false)
+# Filtre de sécurité pour éviter d'acheter au sommet.
+USE_RSI_SAFETY_FILTER=true
+# Le seuil RSI au-dessus duquel un signal d'achat sera ignoré (ex: 70).
+RSI_OVERBOUGHT_THRESHOLD=70
+
+# Vendre une partie de la position à un objectif de profit préliminaire. (true/false)
+# Permet de sécuriser des gains tout en laissant le reste de la position courir.
+USE_PARTIAL_TAKE_PROFIT=false
+# Le pourcentage de profit (%) pour déclencher la vente partielle.
+PARTIAL_TP_TRIGGER_PCT=1.5
+# Le pourcentage (%) de la quantité initiale à vendre pour la prise de profit partielle.
+PARTIAL_TP_SELL_QTY_PCT=50
+
+# Allouer une plus grande taille de position pour les signaux de haute qualité 'STRONG BUY'. (true/false)
+# Permet de capitaliser davantage sur les meilleures opportunités.
+USE_DYNAMIC_POSITION_SIZING=false
+# Le pourcentage du solde à utiliser pour un signal 'STRONG BUY'.
+STRONG_BUY_POSITION_SIZE_PCT=3.0
+
+# Filtre pour éviter d'entrer sur des mèches de liquidité ou des mouvements paraboliques. (true/false)
+# Filtre de sécurité crucial pour éviter les faux signaux sur des pics de volatilité.
+USE_PARABOLIC_FILTER=true
+# La période (en minutes) sur laquelle vérifier une hausse de prix excessive avant d'entrer.
+PARABOLIC_FILTER_PERIOD_MINUTES=5
+# Le pourcentage de hausse maximum autorisé sur la période de vérification.
+PARABOLIC_FILTER_THRESHOLD_PCT=3.0
+
+# --- API CREDENTIALS ---
+BINANCE_API_KEY=votre_cle_api_binance
+BINANCE_SECRET_KEY=votre_cle_secrete_binance
