@@ -1,5 +1,7 @@
+
 import { ScannedPair, BotSettings } from '../types';
 import { logService } from './logService';
+import { TickerUpdate } from './websocketService';
 
 type ScannerStoreSubscriber = (pairs: ScannedPair[]) => void;
 
@@ -51,28 +53,35 @@ class ScannerStore {
         
         this.notify();
     }
-
-    public handlePriceUpdate(update: { symbol: string, price: number }): void {
+    
+    /**
+     * Handles the new, unified real-time data update for a pair.
+     * This is now the primary method for updating price, volume, and color.
+     */
+    public handleTickerUpdate(update: TickerUpdate): void {
         const pair = this.pairs.get(update.symbol);
         if (pair) {
             const oldPrice = pair.price;
             pair.price = update.price;
+            pair.volume = update.volume;
             pair.priceDirection = update.price > oldPrice ? 'up' : (update.price < oldPrice ? 'down' : pair.priceDirection || 'neutral');
             this.notify();
         }
     }
 
+
     /**
      * Handles a full scanner pair object update from the WebSocket.
-     * This is the new primary way real-time data (indicators, score) enters the store.
+     * This is for slower updates like indicator calculations. It intelligently
+     * preserves the real-time price direction.
      */
     public handleScannerUpdate(updatedPair: ScannedPair): void {
         const existingPair = this.pairs.get(updatedPair.symbol);
         if (existingPair) {
-            // Merge the new data, preserving the price direction from the more frequent price updates
-            const priceDirection = existingPair.priceDirection;
+            // Preserve the latest price direction which comes from the faster TickerUpdate
+            const currentPriceDirection = existingPair.priceDirection;
             Object.assign(existingPair, updatedPair);
-            existingPair.priceDirection = priceDirection;
+            existingPair.priceDirection = currentPriceDirection;
         } else {
             // This pair might be new since the last poll
             this.pairs.set(updatedPair.symbol, updatedPair);

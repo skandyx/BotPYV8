@@ -366,15 +366,17 @@ function connectToBinanceStreams() {
                 const newVolume = parseFloat(msg.q); 
 
                 botState.priceCache.set(symbol, { price: newPrice });
-                const updatedPair = botState.scannerCache.find(p => p.symbol === symbol);
-                if (updatedPair) {
-                    const oldPrice = updatedPair.price;
-                    updatedPair.price = newPrice;
-                    updatedPair.volume = newVolume; 
-                    updatedPair.priceDirection = newPrice > oldPrice ? 'up' : newPrice < oldPrice ? 'down' : (updatedPair.priceDirection || 'neutral');
-                    broadcast({ type: 'SCANNER_UPDATE', payload: updatedPair });
+
+                // Silently update the backend's master list of pairs
+                const pairInCache = botState.scannerCache.find(p => p.symbol === symbol);
+                if (pairInCache) {
+                    pairInCache.price = newPrice;
+                    pairInCache.volume = newVolume;
                 }
-                broadcast({ type: 'PRICE_UPDATE', payload: {symbol: symbol, price: newPrice } });
+
+                // Broadcast a single, clean message for real-time price/volume updates
+                broadcast({ type: 'TICKER_UPDATE', payload: { symbol, price: newPrice, volume: newVolume } });
+
             } else if (msg.e === 'bookTicker') {
                 botState.bookTickerCache.set(msg.s, {
                     bid: parseFloat(msg.b),

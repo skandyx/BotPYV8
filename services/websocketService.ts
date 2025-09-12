@@ -3,12 +3,17 @@
 import { WebSocketStatus, LogEntry } from '../types';
 import { logService } from './logService';
 import { priceStore } from './priceStore';
-import { positionService } from './positionService';
 import { scannerStore } from './scannerStore';
 
 export interface PriceUpdate {
     symbol: string;
     price: number;
+}
+
+export interface TickerUpdate {
+    symbol: string;
+    price: number;
+    volume: number;
 }
 
 type StatusChangeCallback = (status: WebSocketStatus) => void;
@@ -59,10 +64,12 @@ const connect = () => {
                     logService.log('WEBSOCKET', `Received full scanner list with ${message.payload.length} pairs.`);
                     scannerStore.updatePairList(message.payload);
                     break;
-                case 'PRICE_UPDATE':
-                    priceStore.updatePrice(message.payload);
+                case 'TICKER_UPDATE':
+                    // This is the new, unified message for real-time price AND volume
+                    priceStore.updateTickerData(message.payload);
                     break;
                 case 'SCANNER_UPDATE':
+                    // This is now only for slower, indicator-based updates
                     scannerStore.handleScannerUpdate(message.payload);
                     break;
                 case 'POSITIONS_UPDATED':

@@ -1,5 +1,7 @@
-import { PriceUpdate } from './websocketService';
+
+import { PriceUpdate, TickerUpdate } from './websocketService';
 import { scannerStore } from './scannerStore';
+import { positionService } from './positionService';
 
 type PriceStoreSubscriber = (update: PriceUpdate) => void;
 
@@ -16,15 +18,24 @@ class PriceStore {
     public unsubscribe(callback: PriceStoreSubscriber): void {
         this.subscribers.delete(callback);
     }
-
-    public updatePrice(update: PriceUpdate): void {
-        this.prices.set(update.symbol, update);
-        // This call is necessary to show 1-second price updates on the scanner page.
-        scannerStore.handlePriceUpdate(update);
+    
+    /**
+     * Handles the new unified ticker update message from the backend.
+     * @param update The TickerUpdate payload containing symbol, price, and volume.
+     */
+    public updateTickerData(update: TickerUpdate): void {
+        const priceUpdatePayload: PriceUpdate = { symbol: update.symbol, price: update.price };
+        
+        this.prices.set(update.symbol, priceUpdatePayload);
+        
+        // Update the scanner store with all ticker info (price, volume, direction)
+        scannerStore.handleTickerUpdate(update);
         
         // Notify direct subscribers (like positionService for real-time PnL)
-        this.subscribers.forEach(callback => callback(update));
+        // with just the price update they need.
+        this.subscribers.forEach(callback => callback(priceUpdatePayload));
     }
+
 
     public getPrice(symbol: string): PriceUpdate | undefined {
         return this.prices.get(symbol);
