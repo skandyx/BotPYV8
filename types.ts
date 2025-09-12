@@ -129,9 +129,11 @@ export interface BotSettings {
     REQUIRE_STRONG_BUY: boolean;
     LOSS_COOLDOWN_HOURS: number;
     
-    // API Credentials
-    BINANCE_API_KEY: string;
-    BINANCE_SECRET_KEY: string;
+    // API Credentials - now indicators, not the keys themselves
+    BINANCE_API_KEY?: string;
+    BINANCE_SECRET_KEY?: string;
+    BINANCE_API_KEY_SET?: boolean;
+    BINANCE_SECRET_KEY_SET?: boolean;
 
     // --- ADVANCED STRATEGY & RISK MANAGEMENT ---
     // ATR Stop Loss

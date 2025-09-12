@@ -649,50 +649,48 @@ app.post('/api/change-password', requireAuth, async (req, res) => {
 
 
 app.get('/api/settings', requireAuth, (req, res) => {
-    // Never send the decrypted keys to the frontend.
-    // Send the encrypted (or original) keys from the settings object.
+    // SECURITY REFACTOR: Never send keys to the frontend.
+    // Send booleans indicating if the keys are set.
     const settingsToSend = {
         ...botState.settings,
-        BINANCE_API_KEY: botState.settings.BINANCE_API_KEY || '',
-        BINANCE_SECRET_KEY: botState.settings.BINANCE_SECRET_KEY ? '********' : '' // Mask secret
+        BINANCE_API_KEY: '', // Never send the key
+        BINANCE_SECRET_KEY: '', // Never send the secret
+        BINANCE_API_KEY_SET: !!(botState.settings.BINANCE_API_KEY && cryptoService.isEncrypted(botState.settings.BINANCE_API_KEY)),
+        BINANCE_SECRET_KEY_SET: !!(botState.settings.BINANCE_SECRET_KEY && cryptoService.isEncrypted(botState.settings.BINANCE_SECRET_KEY)),
     };
     res.json(settingsToSend);
 });
 
 app.post('/api/settings', requireAuth, async (req, res) => {
-    const oldSettings = { ...botState.settings };
-    const newSettings = { ...botState.settings, ...req.body };
-    
-    // If API keys are updated, encrypt them before saving
-    if (newSettings.BINANCE_API_KEY !== oldSettings.BINANCE_API_KEY) {
-        newSettings.BINANCE_API_KEY = cryptoService.encrypt(newSettings.BINANCE_API_KEY);
-    }
-    if (req.body.BINANCE_SECRET_KEY && req.body.BINANCE_SECRET_KEY !== '********') {
-        newSettings.BINANCE_SECRET_KEY = cryptoService.encrypt(req.body.BINANCE_SECRET_KEY);
-    } else {
-        newSettings.BINANCE_SECRET_KEY = oldSettings.BINANCE_SECRET_KEY; // Keep old one if not changed
-    }
+    // SECURITY REFACTOR: More robust and explicit key handling.
+    const { BINANCE_API_KEY: newApiKey, BINANCE_SECRET_KEY: newSecretKey, ...otherSettings } = req.body;
 
-    botState.settings = newSettings;
+    // Update all non-key settings
+    botState.settings = { ...botState.settings, ...otherSettings };
     
-    if (botState.tradingMode === 'VIRTUAL' && botState.settings.INITIAL_VIRTUAL_BALANCE !== oldSettings.INITIAL_VIRTUAL_BALANCE) {
-        botState.balance = botState.settings.INITIAL_VIRTUAL_BALANCE;
-        log('INFO', `Virtual balance was adjusted to match new setting: $${botState.balance}`);
-        await saveData('state');
-        broadcast({ type: 'POSITIONS_UPDATED' });
+    // Only update and encrypt if a NEW key was provided from the frontend.
+    if (newApiKey) {
+        botState.settings.BINANCE_API_KEY = cryptoService.encrypt(newApiKey);
+        botState.decryptedApiKey = newApiKey;
+        log('INFO', 'New Binance API Key has been encrypted and set.');
     }
-
-    await saveData('settings');
-    botState.decryptedApiKey = cryptoService.decrypt(botState.settings.BINANCE_API_KEY);
-    botState.decryptedApiSecret = cryptoService.decrypt(botState.settings.BINANCE_SECRET_KEY);
-    realtimeAnalyzer.updateSettings(botState.settings);
     
-    if (botState.settings.SCANNER_DISCOVERY_INTERVAL_SECONDS !== oldSettings.SCANNER_DISCOVERY_INTERVAL_SECONDS) {
-        log('INFO', `Scanner interval updated to ${botState.settings.SCANNER_DISCOVERY_INTERVAL_SECONDS} seconds.`);
+    if (newSecretKey) {
+        botState.settings.BINANCE_SECRET_KEY = cryptoService.encrypt(newSecretKey);
+        botState.decryptedApiSecret = newSecretKey;
+        log('INFO', 'New Binance Secret Key has been encrypted and set.');
+    }
+    
+    // Check if the interval needs to be reset
+    const oldInterval = botState.settings.SCANNER_DISCOVERY_INTERVAL_SECONDS;
+    if (otherSettings.SCANNER_DISCOVERY_INTERVAL_SECONDS !== oldInterval) {
+        log('INFO', `Scanner interval updated to ${otherSettings.SCANNER_DISCOVERY_INTERVAL_SECONDS} seconds.`);
         if (scannerInterval) clearInterval(scannerInterval);
-        scannerInterval = setInterval(runScannerCycle, botState.settings.SCANNER_DISCOVERY_INTERVAL_SECONDS * 1000);
+        scannerInterval = setInterval(runScannerCycle, otherSettings.SCANNER_DISCOVERY_INTERVAL_SECONDS * 1000);
     }
-    
+
+    realtimeAnalyzer.updateSettings(botState.settings);
+    await saveData('settings');
     res.json({ success: true });
 });
 
@@ -788,15 +786,15 @@ app.post('/api/clear-data', requireAuth, async (req, res) => {
 
 app.post('/api/test-connection', requireAuth, async (req, res) => {
     let { apiKey, secretKey } = req.body;
-    if (!apiKey || !secretKey) {
+    
+    // If placeholder values are sent, use the already decrypted keys from the bot state.
+    const decryptedKey = apiKey === 'use_existing' ? botState.decryptedApiKey : apiKey;
+    const decryptedSecret = secretKey === 'use_existing' ? botState.decryptedApiSecret : secretKey;
+
+    if (!decryptedKey || !decryptedSecret) {
         return res.status(400).json({ success: false, message: 'API Key and Secret are required.' });
     }
     
-    // Attempt to decrypt if they look like they might be encrypted, otherwise use as-is
-    // This allows testing a new key before saving it
-    const decryptedKey = cryptoService.isEncrypted(apiKey) ? cryptoService.decrypt(apiKey) : apiKey;
-    const decryptedSecret = cryptoService.isEncrypted(secretKey) ? cryptoService.decrypt(secretKey) : secretKey;
-
     try {
         const endpoint = 'https://api.binance.com/api/v3/account';
         const timestamp = Date.now();

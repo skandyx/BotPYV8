@@ -24,8 +24,8 @@ const tooltips: Record<string, string> = {
     REQUIRE_STRONG_BUY: "Si activé, le bot n'ouvrira de nouvelles transactions que pour les paires avec un score 'STRONG BUY'. Il ignorera les paires avec un score 'BUY' régulier, rendant la stratégie plus sélective.",
     LOSS_COOLDOWN_HOURS: "Anti-Churn : Si une transaction sur un symbole est clôturée à perte, le bot sera empêché de trader ce même symbole pendant ce nombre d'heures.",
     EXCLUDED_PAIRS: "Une liste de paires séparées par des virgules à ignorer complètement, quel que soit leur volume (par exemple, USDCUSDT,FDUSDUSDT).",
-    BINANCE_API_KEY: "Votre clé API publique Binance. Elle est stockée chiffrée sur le serveur et déchiffrée en mémoire uniquement au démarrage.",
-    BINANCE_SECRET_KEY: "Votre clé API secrète Binance. Elle est stockée chiffrée sur le serveur et n'est jamais exposée en clair.",
+    BINANCE_API_KEY: "Entrez votre nouvelle clé API Binance ici pour la mettre à jour. Si vous laissez ce champ vide, la clé existante sera conservée.",
+    BINANCE_SECRET_KEY: "Entrez votre nouvelle clé secrète Binance ici pour la mettre à jour. Laissez vide pour conserver la clé secrète existante.",
     USE_ATR_STOP_LOSS: "Utiliser un Stop Loss dynamique basé sur l'Average True Range (ATR), qui s'adapte à la volatilité du marché au lieu d'un pourcentage fixe.",
     ATR_MULTIPLIER: "Le multiplicateur à appliquer à la valeur ATR pour définir la distance du Stop Loss (ex: 1.5 signifie que le SL sera à 1.5 * ATR en dessous du prix d'entrée).",
     USE_AUTO_BREAKEVEN: "Déplacer automatiquement le Stop Loss au prix d'entrée une fois qu'un trade est en profit, éliminant le risque de perte.",
@@ -57,6 +57,8 @@ const inputClass = "mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] s
 const SettingsPage: React.FC = () => {
     const { settings: contextSettings, setSettings: setContextSettings, incrementSettingsActivity, refreshData } = useAppContext();
     const [settings, setSettings] = useState<BotSettings | null>(contextSettings);
+    const [apiKeyInput, setApiKeyInput] = useState('');
+    const [secretKeyInput, setSecretKeyInput] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [isTestingBinance, setIsTestingBinance] = useState(false);
     const [saveMessage, setSaveMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
@@ -84,11 +86,24 @@ const SettingsPage: React.FC = () => {
     const handleSave = async () => {
         if (!settings) return;
         setIsSaving(true);
+
+        const settingsToUpdate = {
+            ...settings,
+            BINANCE_API_KEY: apiKeyInput,
+            BINANCE_SECRET_KEY: secretKeyInput,
+        };
+
         try {
-            await api.updateSettings(settings);
-            setContextSettings(settings);
+            await api.updateSettings(settingsToUpdate);
+            
+            // Refetch settings to get the fresh `KEY_SET` booleans
+            const freshSettings = await api.fetchSettings();
+            setContextSettings(freshSettings);
+
             incrementSettingsActivity();
             showMessage("Paramètres sauvegardés avec succès !");
+            setApiKeyInput('');
+            setSecretKeyInput('');
         } catch (error: any) {
             showMessage(`Échec de la sauvegarde des paramètres : ${error.message}`, 'error');
         } finally {
@@ -97,13 +112,17 @@ const SettingsPage: React.FC = () => {
     };
 
     const handleTestBinanceConnection = async () => {
-        if (!settings || !settings.BINANCE_API_KEY || !settings.BINANCE_SECRET_KEY) {
-             showMessage("Veuillez entrer les clés API et secrète de Binance.", 'error');
+        const apiKeyToTest = apiKeyInput || (settings?.BINANCE_API_KEY_SET ? 'use_existing' : '');
+        const secretKeyToTest = secretKeyInput || (settings?.BINANCE_SECRET_KEY_SET ? 'use_existing' : '');
+
+        if (!apiKeyToTest || !secretKeyToTest) {
+             showMessage("Veuillez entrer les clés API et secrète à tester, ou assurez-vous qu'elles sont déjà configurées.", 'error');
             return;
         }
         setIsTestingBinance(true);
         try {
-            const result = await api.testBinanceConnection(settings.BINANCE_API_KEY, settings.BINANCE_SECRET_KEY);
+            // Note: The backend will handle using existing keys if these are placeholder strings
+            const result = await api.testBinanceConnection(apiKeyToTest, secretKeyToTest);
             showMessage(result.message, result.success ? 'success' : 'error');
         } catch (error: any) {
             showMessage(error.message || 'Le test de connexion à Binance a échoué.', 'error');
@@ -367,13 +386,13 @@ const SettingsPage: React.FC = () => {
                             <label htmlFor="BINANCE_API_KEY" className="flex items-center text-sm font-medium text-gray-300">
                                 Clé API Binance <Tooltip text={tooltips.BINANCE_API_KEY} />
                             </label>
-                             <input type="text" id="BINANCE_API_KEY" value={settings.BINANCE_API_KEY} onChange={(e) => handleChange('BINANCE_API_KEY', e.target.value)} className={inputClass} placeholder="Entrez la nouvelle clé API à sauvegarder" />
+                             <input type="text" id="BINANCE_API_KEY" value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)} className={inputClass} placeholder={settings.BINANCE_API_KEY_SET ? "Clé API déjà configurée. Entrez pour changer." : "Entrez la nouvelle clé API à sauvegarder"} />
                         </div>
                         <div>
                             <label htmlFor="BINANCE_SECRET_KEY" className="flex items-center text-sm font-medium text-gray-300">
                                 Clé Secrète Binance <Tooltip text={tooltips.BINANCE_SECRET_KEY} />
                             </label>
-                            <input type="password" id="BINANCE_SECRET_KEY" value={settings.BINANCE_SECRET_KEY} onChange={(e) => handleChange('BINANCE_SECRET_KEY', e.target.value)} className={inputClass} placeholder="Entrez la nouvelle clé secrète" />
+                            <input type="password" id="BINANCE_SECRET_KEY" value={secretKeyInput} onChange={(e) => setSecretKeyInput(e.target.value)} className={inputClass} placeholder={settings.BINANCE_SECRET_KEY_SET ? "Clé Secrète déjà configurée. Entrez pour changer." : "Entrez la nouvelle clé secrète"} />
                         </div>
                          <button onClick={handleTestBinanceConnection} disabled={isTestingBinance} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50">
                              {isTestingBinance ? <Spinner size="sm" /> : 'Tester la Connexion Binance'}
