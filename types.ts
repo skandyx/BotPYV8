@@ -177,4 +177,13 @@ export interface BotSettings {
 
     // --- OPERATIONAL SAFETY ---
     REAL_MODE_READ_ONLY: boolean; // Kill-switch
+
+    // --- ADVANCED TECHNICAL ANALYSIS PARAMETERS (Precision Hunter) ---
+    PRECISION_EMA_PERIOD_1M: number;
+    PRECISION_VOLUME_FACTOR_1M: number;
+    BB_PERIOD_15M: number;
+    BB_STDDEV_15M: number;
+    SQUEEZE_LOOKBACK_PERIOD_15M: number;
+    SQUEEZE_PERCENTILE_THRESHOLD_15M: number;
+    ATR_PERIOD_15M: number;
 }

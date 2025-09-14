@@ -49,7 +49,15 @@ const tooltips: Record<string, string> = {
     IGNITION_MAX_SPREAD_PCT: "Filtre de Liquidité : Le trade sera annulé si l'écart (spread) entre le prix d'achat et de vente est supérieur à ce pourcentage. Protège contre les pumps illiquides.",
     IGNITION_TSL_USE_ATR_BUFFER: "Active un 'coussin' de sécurité sur le Stop Loss Suiveur Éclair, basé sur la volatilité récente (ATR). Donne au trade un peu d'espace pour respirer et évite les sorties prématurées dues au bruit.",
     IGNITION_TSL_ATR_MULTIPLIER: "Multiplicateur de l'ATR (1m) pour calculer la taille du buffer. Une valeur plus grande donne plus d'espace (ex: 0.5). Mettre à 0 équivaut à désactiver le buffer.",
-    REAL_MODE_READ_ONLY: "Kill-Switch : Si activé, le bot ne pourra PAS ouvrir de nouvelles positions en mode 'Réel (Papier)' ou 'Réel (Live)'. Il continuera de gérer les positions existantes. C'est un interrupteur de sécurité."
+    REAL_MODE_READ_ONLY: "Kill-Switch : Si activé, le bot ne pourra PAS ouvrir de nouvelles positions en mode 'Réel (Papier)' ou 'Réel (Live)'. Il continuera de gérer les positions existantes. C'est un interrupteur de sécurité.",
+    // New tooltips
+    PRECISION_EMA_PERIOD_1M: "Période de la Moyenne Mobile Exponentielle (MME) sur le graphique 1 minute, utilisée comme déclencheur de momentum pour l'entrée. Une valeur plus faible est plus réactive.",
+    PRECISION_VOLUME_FACTOR_1M: "Multiplicateur de volume requis pour la confirmation d'entrée sur 1 minute. Ex: '1.5' signifie que le volume de la bougie d'entrée doit être 1.5x supérieur à la moyenne récente.",
+    BB_PERIOD_15M: "Période de calcul des Bandes de Bollinger sur le graphique 15 minutes. Utilisée pour détecter la compression de la volatilité.",
+    BB_STDDEV_15M: "Nombre d'écarts-types (Standard Deviations) utilisé pour les Bandes de Bollinger. '2' est la norme.",
+    SQUEEZE_LOOKBACK_PERIOD_15M: "Nombre de bougies 15m précédentes à analyser pour déterminer si le marché est en 'Squeeze'.",
+    SQUEEZE_PERCENTILE_THRESHOLD_15M: "Seuil de compression. Ex: '0.25' signifie que la largeur des bandes doit être dans les 25% les plus bas de son historique récent pour être considérée en 'Squeeze'.",
+    ATR_PERIOD_15M: "Période de calcul de l'Average True Range (ATR) sur le graphique 15 minutes. Utilisé principalement pour le calcul du Stop Loss ATR.",
 };
 
 const inputClass = "mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white";
@@ -276,6 +284,19 @@ const SettingsPage: React.FC = () => {
                             </div>
                             <ToggleField id="REQUIRE_STRONG_BUY" label="Exiger un 'STRONG BUY' pour l'entrée" />
                             <InputField id="LOSS_COOLDOWN_HOURS" label="Cooldown après Perte (Heures)" children={<span className="text-gray-400 text-sm">h</span>}/>
+                            
+                            <hr className="border-gray-700 my-4" />
+                            <h4 className="text-md font-semibold text-gray-200">Paramètres Avancés d'Analyse Technique</h4>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                                <InputField id="PRECISION_EMA_PERIOD_1M" label="Période MME (1m)" />
+                                <InputField id="PRECISION_VOLUME_FACTOR_1M" label="Facteur Volume (x)" step="0.1" />
+                                <InputField id="BB_PERIOD_15M" label="Période Bandes Bollinger" />
+                                <InputField id="BB_STDDEV_15M" label="Écart-Type BB" step="0.1" />
+                                <InputField id="SQUEEZE_LOOKBACK_PERIOD_15M" label="Période Analyse Squeeze" />
+                                <InputField id="SQUEEZE_PERCENTILE_THRESHOLD_15M" label="Seuil Squeeze (Percentile)" step="0.01" />
+                                <InputField id="ATR_PERIOD_15M" label="Période ATR (pour SL)" />
+                            </div>
                         </div>
                     </div>
                      {/* Parabolic Filter */}

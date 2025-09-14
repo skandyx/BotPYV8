@@ -204,6 +204,14 @@ const loadData = async () => {
             IGNITION_TSL_USE_ATR_BUFFER: process.env.IGNITION_TSL_USE_ATR_BUFFER === 'true',
             IGNITION_TSL_ATR_MULTIPLIER: parseFloat(process.env.IGNITION_TSL_ATR_MULTIPLIER),
             REAL_MODE_READ_ONLY: process.env.REAL_MODE_READ_ONLY === 'true',
+            // New Advanced TA Params
+            PRECISION_EMA_PERIOD_1M: parseInt(process.env.PRECISION_EMA_PERIOD_1M, 10),
+            PRECISION_VOLUME_FACTOR_1M: parseFloat(process.env.PRECISION_VOLUME_FACTOR_1M),
+            BB_PERIOD_15M: parseInt(process.env.BB_PERIOD_15M, 10),
+            BB_STDDEV_15M: parseFloat(process.env.BB_STDDEV_15M),
+            SQUEEZE_LOOKBACK_PERIOD_15M: parseInt(process.env.SQUEEZE_LOOKBACK_PERIOD_15M, 10),
+            SQUEEZE_PERCENTILE_THRESHOLD_15M: parseFloat(process.env.SQUEEZE_PERCENTILE_THRESHOLD_15M),
+            ATR_PERIOD_15M: parseInt(process.env.ATR_PERIOD_15M, 10),
         };
         await saveData('settings');
     }

@@ -18,8 +18,6 @@ class RealtimeAnalyzer {
         this.settings = {};
         this.klineData = new Map();
         this.hydrating = new Set();
-        this.SQUEEZE_PERCENTILE_THRESHOLD = 0.25;
-        this.SQUEEZE_LOOKBACK = 50;
     }
 
     setTradingEngine(engine) {
@@ -119,7 +117,7 @@ class RealtimeAnalyzer {
         if (!pairToUpdate) return;
 
         const klines15m = this.klineData.get(symbol)?.get('15m');
-        if (!klines15m || klines15m.length < 21) return;
+        if (!klines15m || klines15m.length < (this.settings.BB_PERIOD_15M + 1)) return;
 
         const old_hotlist_status = pairToUpdate.is_on_hotlist;
 
@@ -127,8 +125,8 @@ class RealtimeAnalyzer {
         const highs15m = klines15m.map(d => d.high);
         const lows15m = klines15m.map(d => d.low);
 
-        const bbResult = BollingerBands.calculate({ period: 20, values: closes15m, stdDev: 2 });
-        const atrResult = ATR.calculate({ high: highs15m, low: lows15m, close: closes15m, period: 14 });
+        const bbResult = BollingerBands.calculate({ period: this.settings.BB_PERIOD_15M, values: closes15m, stdDev: this.settings.BB_STDDEV_15M });
+        const atrResult = ATR.calculate({ high: highs15m, low: lows15m, close: closes15m, period: this.settings.ATR_PERIOD_15M });
 
         if (bbResult.length < 2 || !atrResult.length) return;
 
@@ -139,16 +137,16 @@ class RealtimeAnalyzer {
 
         const volumes15m = klines15m.map(k => k.volume);
         const lastVolume15m = volumes15m[volumes15m.length - 1];
-        const avgVolume15m = volumes15m.slice(-21, -1).reduce((sum, v) => sum + v, 0) / 20;
+        const avgVolume15m = volumes15m.slice(-(this.settings.BB_PERIOD_15M + 1), -1).reduce((sum, v) => sum + v, 0) / this.settings.BB_PERIOD_15M;
         pairToUpdate.volume_20_period_avg_15m = avgVolume15m;
 
         // --- Squeeze Calculation ---
         const bbWidths = bbResult.map(b => (b.upper - b.lower) / b.middle);
-        const historyForSqueeze = bbWidths.slice(0, -1).slice(-this.SQUEEZE_LOOKBACK);
+        const historyForSqueeze = bbWidths.slice(0, -1).slice(-this.settings.SQUEEZE_LOOKBACK_PERIOD_15M);
         let wasInSqueeze = false;
         if (historyForSqueeze.length >= 20) {
             const sortedWidths = [...historyForSqueeze].sort((a, b) => a - b);
-            const squeezeThreshold = sortedWidths[Math.floor(sortedWidths.length * this.SQUEEZE_PERCENTILE_THRESHOLD)];
+            const squeezeThreshold = sortedWidths[Math.floor(sortedWidths.length * this.settings.SQUEEZE_PERCENTILE_THRESHOLD_15M)];
             wasInSqueeze = bbWidths[bbWidths.length - 2] <= squeezeThreshold;
         }
         pairToUpdate.is_in_squeeze_15m = wasInSqueeze;
@@ -208,21 +206,22 @@ class RealtimeAnalyzer {
     
     analyze1mIndicators(symbol, kline) {
         const botState = this.getState();
+        const s = botState.settings;
         const pair = botState.scannerCache.find(p => p.symbol === symbol);
         if (!pair || !pair.is_on_hotlist) return;
 
         const klines1m = this.klineData.get(symbol)?.get('1m');
-        if (!klines1m || klines1m.length < 21) return;
+        if (!klines1m || klines1m.length < (s.BB_PERIOD_15M + 1)) return; // Use BB period as a general proxy for enough data
 
         const closes1m = klines1m.map(k => k.close);
         const volumes1m = klines1m.map(k => k.volume);
 
-        const lastEma9 = EMA.calculate({ period: 9, values: closes1m }).pop();
+        const lastEma = EMA.calculate({ period: s.PRECISION_EMA_PERIOD_1M, values: closes1m }).pop();
         const avgVolume = volumes1m.slice(-21, -1).reduce((sum, v) => sum + v, 0) / 20;
 
-        if (lastEma9 === undefined) return;
+        if (lastEma === undefined) return;
         
-        const isEntrySignal = kline.close > lastEma9 && kline.volume > avgVolume * 1.5;
+        const isEntrySignal = kline.close > lastEma && kline.volume > avgVolume * s.PRECISION_VOLUME_FACTOR_1M;
 
         if (isEntrySignal) {
             this.log('TRADE', `[1m TRIGGER] Precision entry signal for ${symbol}!`);
